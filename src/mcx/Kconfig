@@ -1,0 +1,29 @@
+# Kconfig settings for NXP MCX processors
+
+if MACH_MCX
+
+config MCX_SELECT
+    bool
+    default y
+
+config BOARD_DIRECTORY
+    string
+    default "mcx"
+
+##################################################
+# Chip Selection
+##################################################
+
+choice 
+    prompt "Processor model"
+
+config MACH_MCXA366
+    bool "MCXA366"
+
+endchoice
+
+config MCU
+    string
+    default "mcxa366" if MACH_MCXA366
+
+endif
