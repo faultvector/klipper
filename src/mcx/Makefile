@@ -9,7 +9,7 @@ CFLAGS += -mcpu=cortex-m33 -mthumb -Ilib/cmsis-core
 
 CFLAGS_klipper.elf += -nostdlib -lgcc -lc_nano
 CFLAGS_klipper.elf += -T $(OUT)src/generic/armcm_link.ld
-$(OUT)klipper.eld: $(OUT)src/generic/armcm_link.ld
+$(OUT)klipper.elf: $(OUT)src/generic/armcm_link.ld
 
 # Add more source files
 src-y += mcx/main.c
