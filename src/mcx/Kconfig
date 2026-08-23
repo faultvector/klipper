@@ -23,6 +23,10 @@ config MCU
     string
     default "mcxa366" if MACH_MCXA366
 
+config CLOCK_FREQ
+    int
+    default 45000000
+
 config FLASH_SIZE
     hex
     default 0xFE000

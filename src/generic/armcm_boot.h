@@ -3,6 +3,7 @@
 
 #include "ctr.h" // DECL_CTR_INT
 
+void armcm_preinit(void);
 void armcm_main(void);
 
 // Declare an IRQ handler

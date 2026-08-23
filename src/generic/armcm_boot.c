@@ -45,11 +45,20 @@ boot_memcpy(void *dest, const void *src, size_t n)
     }
 }
 
+// Optional board-specific initialization that must run before .data/.bss setup
+void __attribute__((weak))
+armcm_preinit(void)
+{
+}
+
 // Main initialization code (called from ResetHandler below)
 static void __noreturn __section(".text.armcm_boot.stage_two")
 reset_handler_stage_two(void)
 {
     int i;
+
+    // Run board-specific initialization required before RAM setup
+    armcm_preinit();
 
     // Clear all enabled user interrupts and user pending interrupts
     for (i = 0; i < ARRAY_SIZE(NVIC->ICER); i++) {

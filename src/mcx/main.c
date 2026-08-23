@@ -4,6 +4,12 @@
 
 #include "board/armcm_boot.h" // armcm_main
 #include "sched.h" // sched_main
+#include "system_MCXA366.h" // SystemInit
+
+void armcm_preinit(void)
+{
+    SystemInit();
+}
 
 void
 armcm_main(void)
