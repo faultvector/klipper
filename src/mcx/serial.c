@@ -53,10 +53,6 @@
 
 DECL_CONSTANT_STR("RESERVE_PINS_serial", "P2_3,P2_2");
 
-
-extern void mcx_clock_init(void);
-
-
 static void
 enable_peripheral_clocks(void)
 {
@@ -300,14 +296,6 @@ serial_enable_tx_irq(void)
 void
 serial_init(void)
 {
-    /*
-     * Establish the shared FRO12M/FRO_LF functional clock first.
-     *
-     * Eventually this should move into the architecture startup path
-     * instead of being triggered by the serial driver.
-     */
-    mcx_clock_init();
-
     /*
      * Enable the register-interface clocks for LPUART2 and PORT2.
      */

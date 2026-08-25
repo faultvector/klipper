@@ -25,7 +25,7 @@ config MCU
 
 config CLOCK_FREQ
     int
-    default 45000000
+    default 240000000
 
 config FLASH_SIZE
     hex

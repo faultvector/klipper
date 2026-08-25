@@ -6,10 +6,17 @@
 #include "sched.h" // sched_main
 #include "system_MCXA366.h" // SystemInit
 
-void armcm_preinit(void)
+
+extern void mcx_clock_init(void);
+
+
+void
+armcm_preinit(void)
 {
     SystemInit();
+    mcx_clock_init();
 }
+
 
 void
 armcm_main(void)
