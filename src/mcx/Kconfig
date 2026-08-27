@@ -6,6 +6,7 @@ config MCX_SELECT
     bool
     default y
     select SERIAL
+    select HAVE_GPIO
 
 config BOARD_DIRECTORY
     string

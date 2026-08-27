@@ -123,6 +123,98 @@ gpio_configure_output(uint32_t pin, uint32_t val)
     gpio->PDDR |= bit;
 }
 
+static uint32_t
+regs_to_pin(GPIO_Type *regs, uint32_t bit)
+{
+    uint32_t port;
+
+    for (port = 0; port < ARRAY_SIZE(gpio_regs); port++) {
+        if (gpio_regs[port] == regs)
+            break;
+    }
+
+    if (port >= ARRAY_SIZE(gpio_regs))
+        shutdown("Not a valid GPIO register");
+
+    uint32_t pin = __builtin_ctz(bit);
+
+    return GPIO(port, pin);
+}
+
+void
+gpio_out_reset(struct gpio_out g, uint32_t val)
+{
+    GPIO_Type *regs = g.regs;
+    uint32_t pin = regs_to_pin(regs, g.bit);
+
+    irqstatus_t flag = irq_save();
+
+    gpio_configure_output(pin, val);
+
+    irq_restore(flag);
+}
+
+static void
+gpio_configure_input(uint32_t pin, int32_t pull_up)
+{
+    uint32_t port = GPIO2PORT(pin);
+    uint32_t pin_num = GPIO2PIN(pin);
+    uint32_t bit = GPIO2BIT(pin);
+
+    GPIO_Type *gpio = gpio_pin_to_regs(pin);
+    PORT_Type *port_regs_base = gpio_pin_to_port(pin);
+
+    enable_port(port);
+    enable_gpio(port);
+
+    uint32_t pcr = PORT_PCR_MUX(0)
+        | PORT_PCR_IBE(1);
+
+    if (pull_up > 0)
+        pcr |= PORT_PCR_PE(1) | PORT_PCR_PS(1);
+    else if (pull_up < 0)
+        pcr |= PORT_PCR_PE(1) | PORT_PCR_PS(0);
+
+    port_regs_base->PCR[pin_num] = pcr;
+
+    gpio->PDDR &= ~bit;
+}
+
+struct gpio_in
+gpio_in_setup(uint32_t pin, int32_t pull_up)
+{
+    GPIO_Type *regs = gpio_pin_to_regs(pin);
+
+    struct gpio_in g = {
+        .regs = regs,
+        .bit = GPIO2BIT(pin),
+    };
+
+    gpio_configure_input(pin, pull_up);
+
+    return g;
+}
+
+void
+gpio_in_reset(struct gpio_in g, int32_t pull_up)
+{
+    GPIO_Type *regs = g.regs;
+    uint32_t pin = regs_to_pin(regs, g.bit);
+
+    irqstatus_t flag = irq_save();
+
+    gpio_configure_input(pin, pull_up);
+
+    irq_restore(flag);
+}
+
+uint8_t
+gpio_in_read(struct gpio_in g)
+{
+    GPIO_Type *regs = g.regs;
+
+    return !!(regs->PDIR & g.bit);
+}
 
 struct gpio_out
 gpio_out_setup(uint32_t pin, uint32_t val)
