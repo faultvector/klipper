@@ -22,6 +22,7 @@ src-y += generic/armcm_boot.c generic/armcm_irq.c generic/armcm_reset.c
 src-y += generic/armcm_timer.c
 src-y += generic/crc16_ccitt.c
 src-y += mcx/clock.c
+src-y += mcx/gpio.c
 
 src-$(CONFIG_SERIAL) += mcx/serial.c generic/serial_irq.c
 
