@@ -25,6 +25,7 @@ src-y += mcx/clock.c
 src-y += mcx/gpio.c
 
 src-$(CONFIG_SERIAL) += mcx/serial.c generic/serial_irq.c
+src-$(CONFIG_WANT_ADC) += mcx/adc.c
 
 # Add NXP device support
 OBJS_klipper.elf += $(OUT)lib/mcxa366/system_MCXA366.o
