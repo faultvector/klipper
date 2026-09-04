@@ -276,12 +276,14 @@ gpio_adc_sample(struct gpio_adc g)
         | ADC_CMDL_CTYPE(0)
         | ADC_CMDL_MODE(0);
 
-    // One conversion, no averaging, default sample time.
+    // One conversion, no averaging.
+    // Use a longer acquisition time for higher-impedance ADC sources.
+    // The minimum sample time can cause the sample capacitor to settle low.
     regs->CMD[0].CMDH =
         ADC_CMDH_NEXT(0)
         | ADC_CMDH_LOOP(0)
         | ADC_CMDH_AVGS(0)
-        | ADC_CMDH_STS(0)
+        | ADC_CMDH_STS(4)
         | ADC_CMDH_CMPEN(0);
 
     status->chan = g.chan;
