@@ -46,58 +46,63 @@ static void
 spi1_clock_setup(void)
 {
     /*
-     * LPSPI1 uses FRO_LF_DIV.
+     * LPSPI1 functional clock:
      *
-     * mcx/clock.c configures:
+     *     FRO_LF_DIV = 12 MHz
      *
-     *     FRO12M
-     *        |
-     *        +--> FRO_LF_DIV / 1
+     * selector 0 chooses FRO_LF_DIV.
      *
-     * so the LPSPI1 functional clock is 12 MHz.
+     * MRCC clock gate, reset control, clock selector, and divider
+     * configuration are protected by SYSCON->CLKUNLOCK, so perform
+     * all of those writes while clock configuration is unlocked.
      */
 
+    // Unlock MRCC clock configuration.
+    SYSCON->CLKUNLOCK &= ~SYSCON_CLKUNLOCK_UNLOCK_MASK;
+
     /*
-     * Clock selector:
+     * Enable the LPSPI1 peripheral clock.
+     *
+     * kCLOCK_GateLPSPI1 encodes CC0 bit 22.
+     */
+    MRCC0->MRCC_GLB_CC0_SET = 1U << 22;
+
+    /*
+     * Release LPSPI1 from reset.
+     *
+     * kLPSPI1_RST_SHIFT_RSTn encodes RST0 bit 22.
+     */
+    MRCC0->MRCC_GLB_RST0_SET = 1U << 22;
+
+    /*
+     * LPSPI1 CLKSEL:
      *
      *     0 = FRO_LF_DIV
      */
-    SYSCON->CLKUNLOCK &= ~SYSCON_CLKUNLOCK_UNLOCK_MASK;
-
     MRCC0->MRCC_LPSPI1_CLKSEL = 0U;
 
     /*
-     * Reset and halt the clock divider before changing it.
+     * Reset and halt the functional clock divider.
      */
     MRCC0->MRCC_LPSPI1_CLKDIV =
         MRCC_MRCC_LPSPI1_CLKDIV_RESET_MASK
         | MRCC_MRCC_LPSPI1_CLKDIV_HALT_MASK;
 
     /*
-     * DIV field is encoded as divisor - 1.
-     *
-     * DIV=0 therefore means divide-by-1.
+     * DIV=0 encodes divide-by-1.
      */
     MRCC0->MRCC_LPSPI1_CLKDIV =
         MRCC_MRCC_LPSPI1_CLKDIV_HALT_MASK
         | MRCC_MRCC_LPSPI1_CLKDIV_DIV(0U);
 
     /*
-     * Clear HALT to start the divider.
+     * Start the divider.
      */
     MRCC0->MRCC_LPSPI1_CLKDIV &=
         ~MRCC_MRCC_LPSPI1_CLKDIV_HALT_MASK;
 
+    // Freeze MRCC clock configuration again.
     SYSCON->CLKUNLOCK |= SYSCON_CLKUNLOCK_UNLOCK_MASK;
-
-    /*
-     * LPSPI1 is bit 22 in CC0 and RST0.
-     *
-     * On MCXA366, writing the SET register releases the peripheral
-     * clock/reset state.
-     */
-    MRCC0->MRCC_GLB_CC0_SET = 1U << 22;
-    MRCC0->MRCC_GLB_RST0_SET = 1U << 22;
 }
 
 static void
@@ -187,6 +192,25 @@ spi1_init(void)
      */
     spi->FCR = 0U;
 }
+
+// static void
+// spi1_init(void)
+// {
+//     LPSPI_Type *spi = LPSPI1;
+
+//     spi1_clock_setup();
+//     spi1_pin_setup();
+
+//     spi->CR = LPSPI_CR_RRF_MASK | LPSPI_CR_RTF_MASK;
+//     spi->IER = 0U;
+//     spi->CR = 0U;
+
+//     spi->CFGR1 =
+//         LPSPI_CFGR1_MASTER_MASK
+//         | LPSPI_CFGR1_PINCFG(0U);
+
+//     spi->FCR = 0U;
+// }
 
 static void
 spi_calc_rate(uint32_t rate, uint32_t *prescale, uint32_t *scaler)
