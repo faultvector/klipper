@@ -5,7 +5,6 @@ if MACH_MCX
 config MCX_SELECT
     bool
     default y
-    select SERIAL
     select HAVE_GPIO
     select HAVE_GPIO_ADC
     select HAVE_GPIO_SPI
@@ -19,6 +18,23 @@ choice
 
 config MACH_MCXA366
     bool "MCXA366"
+
+endchoice
+
+######################################################################
+# Communication interface
+######################################################################
+
+choice
+    prompt "Communication Interface"
+
+config MCX_SERIAL
+    bool "UART"
+    select SERIAL
+
+config MCX_CANBUS
+    bool "CAN bus"
+    select CANSERIAL
 
 endchoice
 
