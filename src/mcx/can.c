@@ -35,42 +35,75 @@
 
 static volatile uint8_t can_tx_busy;
 
+volatile uint32_t can_dbg_cc1;
+volatile uint32_t can_dbg_rst1;
+volatile uint32_t can_dbg_clksel;
+volatile uint32_t can_dbg_clkdiv;
+volatile uint32_t can_dbg_mcr_initial;
+volatile uint32_t can_dbg_mcr_enabled;
+volatile uint32_t can_dbg_mcr_softrst;
+volatile uint32_t can_dbg_mcr_awake;
+
 /****************************************************************
  * Clock and pin setup
  ****************************************************************/
 
-static void can_clock_setup(void)
+static void
+can_clock_setup(void)
 {
     /*
-     * FLEXCAN0 uses FRO_HF_DIV, matching the working NXP SDK
-     * FRDM-MCXA366 example.  Divider is 1.
+     * FLEXCAN0 uses FRO_HF_DIV, matching the FRDM-MCXA366
+     * NXP SDK configuration. Divider is 1.
      */
     SYSCON->CLKUNLOCK &= ~SYSCON_CLKUNLOCK_UNLOCK_MASK;
 
+    /*
+     * Enable clocks for PORT1 and FLEXCAN0.
+     */
     MRCC0->MRCC_GLB_CC1_SET =
         MRCC_MRCC_GLB_CC1_PORT1_MASK
         | MRCC_MRCC_GLB_CC1_FLEXCAN0_MASK;
 
+    /*
+     * Release PORT1 and FLEXCAN0 from reset.
+     *
+     * In MRCC_GLB_RST1:
+     *   0 = peripheral held in reset
+     *   1 = peripheral released from reset
+     *
+     * Therefore use SET only here. Do NOT follow this with RST1_CLR.
+     */
     MRCC0->MRCC_GLB_RST1_SET =
         MRCC_MRCC_GLB_RST1_PORT1_MASK
         | MRCC_MRCC_GLB_RST1_FLEXCAN0_MASK;
 
-    MRCC0->MRCC_FLEXCAN0_CLKSEL = 0U;
+    /*
+     * FLEXCAN0 functional clock source.
+     */
+    MRCC0->MRCC_FLEXCAN0_CLKSEL = 2U;
 
+    /*
+     * Reset and halt the divider.
+     */
     MRCC0->MRCC_FLEXCAN0_CLKDIV =
         MRCC_MRCC_FLEXCAN0_CLKDIV_RESET_MASK
         | MRCC_MRCC_FLEXCAN0_CLKDIV_HALT_MASK;
 
+    /*
+     * Divide by 1 while halted.
+     */
     MRCC0->MRCC_FLEXCAN0_CLKDIV =
         MRCC_MRCC_FLEXCAN0_CLKDIV_HALT_MASK
         | MRCC_MRCC_FLEXCAN0_CLKDIV_DIV(0U);
 
+    /*
+     * Release divider halt.
+     */
     MRCC0->MRCC_FLEXCAN0_CLKDIV &=
         ~MRCC_MRCC_FLEXCAN0_CLKDIV_HALT_MASK;
 
     SYSCON->CLKUNLOCK |= SYSCON_CLKUNLOCK_UNLOCK_MASK;
 }
-
 static void
 can_pin_setup(void)
 {
@@ -287,48 +320,77 @@ void
 can_init(void)
 {
     can_clock_setup();
+
+    /*
+     * Snapshot the MCX clock/reset state into SRAM so it can be
+     * inspected through GDB. LinkServer does not permit direct
+     * debugger reads from these peripheral address ranges.
+     */
+    can_dbg_cc1 = MRCC0->MRCC_GLB_CC1;
+    can_dbg_rst1 = MRCC0->MRCC_GLB_RST1;
+    can_dbg_clksel = MRCC0->MRCC_FLEXCAN0_CLKSEL;
+    can_dbg_clkdiv = MRCC0->MRCC_FLEXCAN0_CLKDIV;
+
     can_pin_setup();
 
     /*
-    * Enable FlexCAN.
-    */
-    CAN0->MCR &= ~CAN_MCR_MDIS_MASK;
-    
+     * Capture the initial FlexCAN state.
+     */
+    can_dbg_mcr_initial = CAN0->MCR;
+
     /*
-    * Reset the FlexCAN protocol engine to a known state.
-    */
+     * Enable FlexCAN.
+     */
+    CAN0->MCR &= ~CAN_MCR_MDIS_MASK;
+    can_dbg_mcr_enabled = CAN0->MCR;
+
+    /*
+     * Wait for FlexCAN to acknowledge leaving low-power/disable mode
+     * before requesting a protocol-engine soft reset.
+     */
+    while (CAN0->MCR & CAN_MCR_LPMACK_MASK)
+        ;
+
+    can_dbg_mcr_awake = CAN0->MCR;
+
+    /*
+     * Reset the FlexCAN protocol engine to a known state.
+     */
     CAN0->MCR |= CAN_MCR_SOFTRST_MASK;
+    can_dbg_mcr_softrst = CAN0->MCR;
+
     while (CAN0->MCR & CAN_MCR_SOFTRST_MASK)
         ;
-    
+
     /*
-    * Enter freeze mode for configuration.
-    */
+     * Enter freeze mode for configuration.
+     */
     CAN0->MCR |= CAN_MCR_FRZ_MASK | CAN_MCR_HALT_MASK;
-    
+
     while (!(CAN0->MCR & CAN_MCR_FRZACK_MASK))
         ;
-    
+
     /*
-    * Initialize all message-buffer RAM.  This matters on FlexCAN
-    * implementations with ECC-protected message memory.
-    */
+     * Initialize all message-buffer RAM. This matters on FlexCAN
+     * implementations with ECC-protected message memory.
+     */
     for (uint32_t i = 0; i < CAN_MB_SIZE_MB_GROUP_MB_COUNT; i++) {
         CAN0->MB[i].CS = 0U;
         CAN0->MB[i].ID = 0U;
         CAN0->MB[i].WORD0 = 0U;
         CAN0->MB[i].WORD1 = 0U;
     }
-    
+
     for (uint32_t i = 0; i < CAN_RXIMR_COUNT; i++)
         CAN0->RXIMR[i] = 0U;
-    
+
     /*
      * Classic CAN, two message buffers, self reception disabled.
      */
     CAN0->MCR =
         (CAN0->MCR
-         & ~(CAN_MCR_MAXMB_MASK | CAN_MCR_RFEN_MASK
+         & ~(CAN_MCR_MAXMB_MASK
+             | CAN_MCR_RFEN_MASK
              | CAN_MCR_FDEN_MASK))
         | CAN_MCR_MAXMB(CAN_TX_MB)
         | CAN_MCR_SRXDIS_MASK
@@ -339,14 +401,20 @@ can_init(void)
 
     canhw_set_filter(0);
 
+    /*
+     * Configure TX mailbox.
+     */
     CAN0->MB[CAN_TX_MB].CS = CAN_MB_CODE_TX_INACTIVE;
     CAN0->MB[CAN_TX_MB].ID = 0U;
     CAN0->MB[CAN_TX_MB].WORD0 = 0U;
     CAN0->MB[CAN_TX_MB].WORD1 = 0U;
 
+    /*
+     * Clear stale interrupt flags and enable RX/TX mailbox interrupts.
+     */
     CAN0->IFLAG1 = 0xffffffffU;
     CAN0->IMASK1 = CAN_RX_IFLAG | CAN_TX_IFLAG;
-    
+
     armcm_enable_irq(CAN0_IRQHandler, CAN0_IRQn, 1);
 
     /*
@@ -365,7 +433,94 @@ can_init(void)
      */
     CAN0->MCR &= ~CAN_MCR_HALT_MASK;
 
-    while(CAN0->MCR & CAN_MCR_FRZACK_MASK)
+    while (CAN0->MCR & CAN_MCR_FRZACK_MASK)
         ;
 }
+
+
+// void
+// can_init(void)
+// {
+//     can_clock_setup();
+//     can_pin_setup();
+
+//     /*
+//     * Enable FlexCAN.
+//     */
+//     CAN0->MCR &= ~CAN_MCR_MDIS_MASK;
+    
+//     /*
+//     * Reset the FlexCAN protocol engine to a known state.
+//     */
+//     CAN0->MCR |= CAN_MCR_SOFTRST_MASK;
+//     while (CAN0->MCR & CAN_MCR_SOFTRST_MASK)
+//         ;
+    
+//     /*
+//     * Enter freeze mode for configuration.
+//     */
+//     CAN0->MCR |= CAN_MCR_FRZ_MASK | CAN_MCR_HALT_MASK;
+    
+//     while (!(CAN0->MCR & CAN_MCR_FRZACK_MASK))
+//         ;
+    
+//     /*
+//     * Initialize all message-buffer RAM.  This matters on FlexCAN
+//     * implementations with ECC-protected message memory.
+//     */
+//     for (uint32_t i = 0; i < CAN_MB_SIZE_MB_GROUP_MB_COUNT; i++) {
+//         CAN0->MB[i].CS = 0U;
+//         CAN0->MB[i].ID = 0U;
+//         CAN0->MB[i].WORD0 = 0U;
+//         CAN0->MB[i].WORD1 = 0U;
+//     }
+    
+//     for (uint32_t i = 0; i < CAN_RXIMR_COUNT; i++)
+//         CAN0->RXIMR[i] = 0U;
+    
+//     /*
+//      * Classic CAN, two message buffers, self reception disabled.
+//      */
+//     CAN0->MCR =
+//         (CAN0->MCR
+//          & ~(CAN_MCR_MAXMB_MASK | CAN_MCR_RFEN_MASK
+//              | CAN_MCR_FDEN_MASK))
+//         | CAN_MCR_MAXMB(CAN_TX_MB)
+//         | CAN_MCR_SRXDIS_MASK
+//         | CAN_MCR_FRZ_MASK
+//         | CAN_MCR_HALT_MASK;
+
+//     CAN0->CTRL1 = can_make_ctrl1(CONFIG_CANBUS_FREQUENCY);
+
+//     canhw_set_filter(0);
+
+//     CAN0->MB[CAN_TX_MB].CS = CAN_MB_CODE_TX_INACTIVE;
+//     CAN0->MB[CAN_TX_MB].ID = 0U;
+//     CAN0->MB[CAN_TX_MB].WORD0 = 0U;
+//     CAN0->MB[CAN_TX_MB].WORD1 = 0U;
+
+//     CAN0->IFLAG1 = 0xffffffffU;
+//     CAN0->IMASK1 = CAN_RX_IFLAG | CAN_TX_IFLAG;
+    
+//     armcm_enable_irq(CAN0_IRQHandler, CAN0_IRQn, 1);
+
+//     /*
+//      * TEMPORARY bring-up UUID seed.
+//      *
+//      * Replace with the MCXA366 hardware unique ID once the CAN transport
+//      * is proven.
+//      */
+//     static uint8_t raw_uuid[] = {
+//         0x4d, 0x43, 0x58, 0x41, 0x33, 0x36, 0x36, 0x01
+//     };
+//     canserial_set_uuid(raw_uuid, sizeof(raw_uuid));
+
+//     /*
+//      * Leave freeze mode and enter normal operation.
+//      */
+//     CAN0->MCR &= ~CAN_MCR_HALT_MASK;
+
+//     while(CAN0->MCR & CAN_MCR_FRZACK_MASK)
+//         ;
+// }
 DECL_INIT(can_init);

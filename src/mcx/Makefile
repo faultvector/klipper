@@ -16,21 +16,28 @@ CFLAGS += -Ilib/fast-hash
 
 CFLAGS_klipper.elf += -nostdlib -lgcc -lc_nano
 CFLAGS_klipper.elf += -T $(OUT)src/generic/armcm_link.ld
+CFLAGS_klipper.elf += -Wl,-e,mcx_reset_entry
 $(OUT)klipper.elf: $(OUT)src/generic/armcm_link.ld
 
 # Add Klipper source files
 src-y += mcx/main.c
-src-y += generic/armcm_boot.c generic/armcm_irq.c generic/armcm_reset.c
+
+src-y += generic/armcm_boot.c
+src-y += generic/armcm_irq.c
+src-y += generic/armcm_reset.c
 src-y += generic/armcm_timer.c
 src-y += generic/crc16_ccitt.c
+
 src-y += mcx/clock.c
 src-y += mcx/gpio.c
 
 src-$(CONFIG_SERIAL) += mcx/serial.c generic/serial_irq.c
 src-$(CONFIG_WANT_ADC) += mcx/adc.c
 src-$(CONFIG_WANT_SPI) += mcx/spi.c
+
 src-$(CONFIG_CANSERIAL) += mcx/can.c
-src-$(CONFIG_CANSERIAL) += generic/canbus.c generic/canserial.c
+src-$(CONFIG_CANSERIAL) += generic/canbus.c
+src-$(CONFIG_CANSERIAL) += generic/canserial.c
 src-$(CONFIG_CANSERIAL) += ../lib/fast-hash/fasthash.c
 
 # Add NXP device support
