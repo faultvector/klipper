@@ -34,15 +34,6 @@
 
 static volatile uint8_t can_tx_busy;
 
-volatile uint32_t can_dbg_cc1;
-volatile uint32_t can_dbg_rst1;
-volatile uint32_t can_dbg_clksel;
-volatile uint32_t can_dbg_clkdiv;
-volatile uint32_t can_dbg_mcr_initial;
-volatile uint32_t can_dbg_mcr_enabled;
-volatile uint32_t can_dbg_mcr_softrst;
-volatile uint32_t can_dbg_mcr_awake;
-
 
 /****************************************************************
  * Clock and pin setup
@@ -318,34 +309,16 @@ CAN0_IRQHandler(void)
 /****************************************************************
  * Initialization
  ****************************************************************/
-
 void
 can_init(void)
 {
     can_clock_setup();
-
-    /*
-     * Snapshot the MCX clock/reset state into SRAM so it can be
-     * inspected through GDB. LinkServer does not permit direct
-     * debugger reads from these peripheral address ranges.
-     */
-    can_dbg_cc1 = MRCC0->MRCC_GLB_CC1;
-    can_dbg_rst1 = MRCC0->MRCC_GLB_RST1;
-    can_dbg_clksel = MRCC0->MRCC_FLEXCAN0_CLKSEL;
-    can_dbg_clkdiv = MRCC0->MRCC_FLEXCAN0_CLKDIV;
-
     can_pin_setup();
-
-    /*
-     * Capture the initial FlexCAN state.
-     */
-    can_dbg_mcr_initial = CAN0->MCR;
 
     /*
      * Enable FlexCAN.
      */
     CAN0->MCR &= ~CAN_MCR_MDIS_MASK;
-    can_dbg_mcr_enabled = CAN0->MCR;
 
     /*
      * Wait for FlexCAN to acknowledge leaving low-power/disable mode
@@ -354,13 +327,10 @@ can_init(void)
     while (CAN0->MCR & CAN_MCR_LPMACK_MASK)
         ;
 
-    can_dbg_mcr_awake = CAN0->MCR;
-
     /*
      * Reset the FlexCAN protocol engine to a known state.
      */
     CAN0->MCR |= CAN_MCR_SOFTRST_MASK;
-    can_dbg_mcr_softrst = CAN0->MCR;
 
     while (CAN0->MCR & CAN_MCR_SOFTRST_MASK)
         ;
