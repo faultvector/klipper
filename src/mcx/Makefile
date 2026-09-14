@@ -36,6 +36,7 @@ src-$(CONFIG_WANT_ADC) += mcx/adc.c
 src-$(CONFIG_WANT_SPI) += mcx/spi.c
 
 src-$(CONFIG_CANSERIAL) += mcx/can.c
+src-$(CONFIG_CANSERIAL) += mcx/chipid.c
 src-$(CONFIG_CANSERIAL) += generic/canbus.c
 src-$(CONFIG_CANSERIAL) += generic/canserial.c
 src-$(CONFIG_CANSERIAL) += ../lib/fast-hash/fasthash.c
