@@ -13,6 +13,8 @@
 #include "internal.h"
 #include "sched.h"
 
+DECL_CONSTANT_STR("RESERVE_PINS_CAN", "P1_11,P1_2");
+
 #define CAN_RX_MB 0
 #define CAN_TX_MB 1
 
