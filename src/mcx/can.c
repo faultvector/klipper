@@ -16,8 +16,6 @@
 #define CAN_RX_MB 0
 #define CAN_TX_MB 1
 
-#define CAN_CLOCK_FREQ 240000000U
-
 #define CAN_MB_CODE_SHIFT 24
 #define CAN_MB_DLC_SHIFT 16
 #define CAN_MB_RTR (1U << 20)
@@ -159,19 +157,11 @@ void
 canhw_set_filter(uint32_t id)
 {
     /*
-     * First-light implementation: accept all standard frames.
+     * Hardware filtering is not currently implemented.
      *
-     * Generic Klipper will discard messages that do not belong to
-     * this node. Once discovery works, we can tighten this to the
-     * admin ID and assigned node IDs.
+     * All standard CAN frames are accepted and generic Klipper
+     * filters packets in software.
      */
-    CAN0->RXMGMASK = 0U;
-
-    CAN0->MB[CAN_RX_MB].CS = 0U;
-    CAN0->MB[CAN_RX_MB].ID = 0U;
-    CAN0->MB[CAN_RX_MB].WORD0 = 0U;
-    CAN0->MB[CAN_RX_MB].WORD1 = 0U;
-    CAN0->MB[CAN_RX_MB].CS = CAN_MB_CODE_RX_EMPTY;
 }
 
 
@@ -370,12 +360,24 @@ can_init(void)
         | CAN_MCR_HALT_MASK;
 
     CAN0->CTRL1 = can_make_ctrl1(CONFIG_CANBUS_FREQUENCY);
-
-    canhw_set_filter(0);
-
+    
     /*
-     * Configure TX mailbox.
-     */
+    * Accept all standard CAN identifiers.
+    */
+    CAN0->RXMGMASK = 0U;
+    
+    /*
+    * Configure RX mailbox.
+    */
+    CAN0->MB[CAN_RX_MB].CS = 0U;
+    CAN0->MB[CAN_RX_MB].ID = 0U;
+    CAN0->MB[CAN_RX_MB].WORD0 = 0U;
+    CAN0->MB[CAN_RX_MB].WORD1 = 0U;
+    CAN0->MB[CAN_RX_MB].CS = CAN_MB_CODE_RX_EMPTY;
+    
+    /*
+    * Configure TX mailbox.
+    */
     CAN0->MB[CAN_TX_MB].CS = CAN_MB_CODE_TX_INACTIVE;
     CAN0->MB[CAN_TX_MB].ID = 0U;
     CAN0->MB[CAN_TX_MB].WORD0 = 0U;
