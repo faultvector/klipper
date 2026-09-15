@@ -143,9 +143,7 @@ can_make_ctrl1(uint32_t bitrate)
         | CAN_CTRL1_RJW(1U)
         | CAN_CTRL1_PSEG1(5U)
         | CAN_CTRL1_PSEG2(1U)
-        | CAN_CTRL1_PROPSEG(6U)
-        | CAN_CTRL1_ERRMSK_MASK
-        | CAN_CTRL1_BOFFMSK_MASK;
+        | CAN_CTRL1_PROPSEG(6U);
 }
 
 
@@ -162,6 +160,7 @@ canhw_set_filter(uint32_t id)
      * All standard CAN frames are accepted and generic Klipper
      * filters packets in software.
      */
+    (void)id;
 }
 
 
@@ -267,7 +266,12 @@ CAN0_IRQHandler(void)
 
         struct canbus_msg msg;
         msg.id = (id >> 18) & 0x7ffU;
-        msg.dlc = (cs >> CAN_MB_DLC_SHIFT) & 0x0fU;
+        
+        if (cs & CAN_MB_RTR)
+            msg.id |= CANMSG_ID_RTR;
+        
+        uint32_t dlc = (cs >> CAN_MB_DLC_SHIFT) & 0x0fU;
+        msg.dlc = dlc > 8U ? 8U : dlc;
 
         msg.data[0] = can_data_byte(word0, 0);
         msg.data[1] = can_data_byte(word0, 1);
