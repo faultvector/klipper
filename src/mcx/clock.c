@@ -221,6 +221,13 @@ setup_fro240m(void)
 }
 
 
+uint32_t
+mcx_get_fro_hf_frequency(void)
+{
+    return 240000000U;
+}
+
+
 void
 mcx_clock_init(void)
 {

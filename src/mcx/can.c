@@ -5,12 +5,12 @@
 // This file may be distributed under the terms of the GNU GPLv3 license.
 
 #include <stdint.h>
-#include <string.h>
 #include "autoconf.h"
 #include "command.h"
 #include "MCXA366.h"
 #include "generic/armcm_boot.h"
 #include "generic/canbus.h"
+#include "internal.h"
 #include "sched.h"
 
 #define CAN_RX_MB 0
@@ -21,7 +21,6 @@
 #define CAN_MB_CODE_SHIFT 24
 #define CAN_MB_DLC_SHIFT 16
 #define CAN_MB_RTR (1U << 20)
-#define CAN_MB_IDE (1U << 21)
 
 #define CAN_MB_CODE_RX_EMPTY    (4U << CAN_MB_CODE_SHIFT)
 #define CAN_MB_CODE_TX_INACTIVE (8U << CAN_MB_CODE_SHIFT)
@@ -122,6 +121,8 @@ can_pin_setup(void)
 static uint32_t
 can_make_ctrl1(uint32_t bitrate)
 {
+    uint32_t can_clock = mcx_get_fro_hf_frequency();
+
     /*
      * Use 16 time quanta per bit:
      *
@@ -131,15 +132,13 @@ can_make_ctrl1(uint32_t bitrate)
      * PSEG2     = 2 TQ
      *
      * Sample point = 14 / 16 = 87.5%
-     *
-     * FlexCAN fields encode segment length minus one.
      */
-    uint32_t clocks_per_bit = CAN_CLOCK_FREQ / bitrate;
+    uint32_t clocks_per_bit = can_clock / bitrate;
     uint32_t prescaler = clocks_per_bit / 16U;
 
     if (!prescaler
         || prescaler > 256U
-        || prescaler * 16U * bitrate != CAN_CLOCK_FREQ)
+        || prescaler * 16U * bitrate != can_clock)
         shutdown("Unsupported CAN bitrate");
 
     return CAN_CTRL1_PRESDIV(prescaler - 1U)
