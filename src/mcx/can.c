@@ -16,15 +16,9 @@
 #define CAN_RX_MB 0
 #define CAN_TX_MB 1
 
-#define CAN_MB_CODE_SHIFT 24
-#define CAN_MB_DLC_SHIFT 16
-#define CAN_MB_RTR (1U << 20)
-
-#define CAN_MB_CODE_RX_EMPTY    (4U << CAN_MB_CODE_SHIFT)
-#define CAN_MB_CODE_TX_INACTIVE (8U << CAN_MB_CODE_SHIFT)
-#define CAN_MB_CODE_TX_DATA     (12U << CAN_MB_CODE_SHIFT)
-
-#define CAN_MB_STD_ID(id) (((uint32_t)(id) & 0x7ffU) << 18)
+#define CAN_MB_CODE_RX_EMPTY    CAN_CS_CODE(4U)
+#define CAN_MB_CODE_TX_INACTIVE CAN_CS_CODE(8U)
+#define CAN_MB_CODE_TX_DATA     CAN_CS_CODE(12U)
 
 #define CAN_RX_IFLAG (1U << CAN_RX_MB)
 #define CAN_TX_IFLAG (1U << CAN_TX_MB)
@@ -139,6 +133,10 @@ can_make_ctrl1(uint32_t bitrate)
         || prescaler * 16U * bitrate != can_clock)
         shutdown("Unsupported CAN bitrate");
 
+    /*
+    * BOFFREC remains clear. On FlexCAN, BOFFREC=0 enables automatic
+    * recovery from the bus-off state.
+    */
     return CAN_CTRL1_PRESDIV(prescaler - 1U)
         | CAN_CTRL1_RJW(1U)
         | CAN_CTRL1_PSEG1(5U)
@@ -193,14 +191,14 @@ canhw_send(struct canbus_msg *msg)
     can_tx_busy = 1;
 
     CAN0->MB[CAN_TX_MB].CS = CAN_MB_CODE_TX_INACTIVE;
-    CAN0->MB[CAN_TX_MB].ID = CAN_MB_STD_ID(msg->id);
+    CAN0->MB[CAN_TX_MB].ID = CAN_ID_STD(msg->id & 0x7ffU);
     CAN0->MB[CAN_TX_MB].WORD0 = pack_word(msg->data, 0, len);
     CAN0->MB[CAN_TX_MB].WORD1 = pack_word(msg->data, 4, len);
-
-    uint32_t cs = CAN_MB_CODE_TX_DATA | (len << CAN_MB_DLC_SHIFT);
-
+    
+    uint32_t cs = CAN_MB_CODE_TX_DATA | CAN_CS_DLC(len);
+    
     if (msg->id & CANMSG_ID_RTR)
-        cs |= CAN_MB_RTR;
+        cs |= CAN_CS_RTR_MASK;
 
     CAN0->MB[CAN_TX_MB].CS = cs;
 
@@ -222,6 +220,12 @@ canhw_get_status(struct canbus_status *status)
         (ecr & CAN_ECR_TXERRCNT_MASK) >> CAN_ECR_TXERRCNT_SHIFT;
     status->rx_error =
         (ecr & CAN_ECR_RXERRCNT_MASK) >> CAN_ECR_RXERRCNT_SHIFT;
+
+    /*
+     * FlexCAN does not expose a simple cumulative transmit retry
+     * counter equivalent to the software CAN implementation, so
+     * leave this at zero.
+     */
     status->tx_retries = 0;
 
     uint32_t fault =
@@ -265,12 +269,13 @@ CAN0_IRQHandler(void)
         (void)CAN0->TIMER;
 
         struct canbus_msg msg;
-        msg.id = (id >> 18) & 0x7ffU;
+        msg.id = (id & CAN_ID_STD_MASK) >> CAN_ID_STD_SHIFT;
         
-        if (cs & CAN_MB_RTR)
+        if (cs & CAN_CS_RTR_MASK)
             msg.id |= CANMSG_ID_RTR;
         
-        uint32_t dlc = (cs >> CAN_MB_DLC_SHIFT) & 0x0fU;
+        uint32_t dlc =
+            (cs & CAN_CS_DLC_MASK) >> CAN_CS_DLC_SHIFT;
         msg.dlc = dlc > 8U ? 8U : dlc;
 
         msg.data[0] = can_data_byte(word0, 0);
