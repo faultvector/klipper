@@ -45,65 +45,30 @@ static const struct spi_info spi_bus[] = {
 static void
 spi1_clock_setup(void)
 {
-    /*
-     * LPSPI1 functional clock:
-     *
-     *     FRO_LF_DIV = 12 MHz
-     *
-     * selector 0 chooses FRO_LF_DIV.
-     *
-     * MRCC clock gate, reset control, clock selector, and divider
-     * configuration are protected by SYSCON->CLKUNLOCK, so perform
-     * all of those writes while clock configuration is unlocked.
-     */
+    uint32_t clkunlock = SYSCON->CLKUNLOCK;
 
-    // Unlock MRCC clock configuration.
-    SYSCON->CLKUNLOCK &= ~SYSCON_CLKUNLOCK_UNLOCK_MASK;
+    SYSCON->CLKUNLOCK =
+        clkunlock & ~SYSCON_CLKUNLOCK_UNLOCK_MASK;
 
-    /*
-     * Enable the LPSPI1 peripheral clock.
-     *
-     * kCLOCK_GateLPSPI1 encodes CC0 bit 22.
-     */
     MRCC0->MRCC_GLB_CC0_SET = 1U << 22;
-
-    /*
-     * Release LPSPI1 from reset.
-     *
-     * kLPSPI1_RST_SHIFT_RSTn encodes RST0 bit 22.
-     */
     MRCC0->MRCC_GLB_RST0_SET = 1U << 22;
 
-    /*
-     * LPSPI1 CLKSEL:
-     *
-     *     0 = FRO_LF_DIV
-     */
     MRCC0->MRCC_LPSPI1_CLKSEL = 0U;
 
-    /*
-     * Reset and halt the functional clock divider.
-     */
     MRCC0->MRCC_LPSPI1_CLKDIV =
         MRCC_MRCC_LPSPI1_CLKDIV_RESET_MASK
         | MRCC_MRCC_LPSPI1_CLKDIV_HALT_MASK;
 
-    /*
-     * DIV=0 encodes divide-by-1.
-     */
     MRCC0->MRCC_LPSPI1_CLKDIV =
         MRCC_MRCC_LPSPI1_CLKDIV_HALT_MASK
         | MRCC_MRCC_LPSPI1_CLKDIV_DIV(0U);
 
-    /*
-     * Start the divider.
-     */
     MRCC0->MRCC_LPSPI1_CLKDIV &=
         ~MRCC_MRCC_LPSPI1_CLKDIV_HALT_MASK;
 
-    // Freeze MRCC clock configuration again.
-    SYSCON->CLKUNLOCK |= SYSCON_CLKUNLOCK_UNLOCK_MASK;
+    SYSCON->CLKUNLOCK = clkunlock;
 }
+
 
 static void
 spi1_pin_setup(void)
