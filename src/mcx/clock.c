@@ -56,7 +56,7 @@ set_clock_divider(volatile uint32_t *reg, uint32_t value,
         /*
          * Release HALT.
          */
-        *reg &= div;
+        *reg = div;
     }
 
     SYSCON->CLKUNLOCK = clkunlock;
