@@ -74,17 +74,15 @@ enable_peripheral_clocks(void)
 static void
 release_port_reset(void)
 {
-    /*
-     * PORT2:
-     *   MRCC reset register 1, bit 14
-     *
-     * SET releases the peripheral from reset.
-     */
-    SYSCON->CLKUNLOCK &= ~SYSCON_CLKUNLOCK_UNLOCK_MASK;
+    uint32_t clkunlock = SYSCON->CLKUNLOCK;
 
-    MRCC0->MRCC_GLB_RST1_SET = 1U << 14;
+    SYSCON->CLKUNLOCK =
+        clkunlock & ~SYSCON_CLKUNLOCK_UNLOCK_MASK;
 
-    SYSCON->CLKUNLOCK |= SYSCON_CLKUNLOCK_UNLOCK_MASK;
+    MRCC0->MRCC_GLB_RST1_SET =
+        MRCC_MRCC_GLB_RST1_PORT2_MASK;
+
+    SYSCON->CLKUNLOCK = clkunlock;
 }
 
 
