@@ -11,6 +11,7 @@
 #include "internal.h" // GPIO
 #include "sched.h" // shutdown
 
+#define ADC_RESULT_SHIFT 3
 
 DECL_CONSTANT("ADC_MAX", 4095);
 
@@ -320,7 +321,7 @@ gpio_adc_sample(struct gpio_adc g)
         // In standard 12-bit mode the valid conversion bits are
         // RESFIFO.D[14:3].
         status->value =
-            (result & ADC_RESFIFO_D_MASK) >> 3;
+            (result & ADC_RESFIFO_D_MASK) >> ADC_RESULT_SHIFT;
         status->ready = 1;
 
         return 0;
