@@ -84,8 +84,11 @@ spi1_pin_setup(void)
     /*
      * PORT3 is bit 15 in CC1/RST1.
      */
-    MRCC0->MRCC_GLB_CC1_SET = 1U << 15;
-    MRCC0->MRCC_GLB_RST1_SET = 1U << 15;
+    MRCC0->MRCC_GLB_CC1_SET =
+        MRCC_MRCC_GLB_CC1_PORT3_MASK;
+    
+    MRCC0->MRCC_GLB_RST1_SET =
+        MRCC_MRCC_GLB_RST1_PORT3_MASK;
 
     SYSCON->CLKUNLOCK = clkunlock;
 
