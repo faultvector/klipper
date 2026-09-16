@@ -89,36 +89,26 @@ release_port_reset(void)
 static void
 setup_uart_clock(void)
 {
-    /*
-     * LPUART2 CLKSEL:
-     *
-     *   selector 0 = FRO_LF_DIV
-     */
-    SYSCON->CLKUNLOCK &= ~SYSCON_CLKUNLOCK_UNLOCK_MASK;
+    uint32_t clkunlock = SYSCON->CLKUNLOCK;
 
-    MRCC0->MRCC_LPUART2_CLKSEL = 0U;
+    SYSCON->CLKUNLOCK =
+        clkunlock & ~SYSCON_CLKUNLOCK_UNLOCK_MASK;
 
-    /*
-     * Configure the LPUART2 functional clock divider for divide-by-1.
-     *
-     * Match NXP CLOCK_SetClockDiv():
-     *
-     *   RESET=1, HALT=1
-     *   RESET=0, HALT=1, DIV=0
-     *   RESET=0, HALT=0, DIV=0
-     *
-     * DIV=0 encodes divide-by-1.
-     */
+    MRCC0->MRCC_LPUART2_CLKSEL =
+        MRCC_MRCC_LPUART2_CLKSEL_MUX(0U);
+
     MRCC0->MRCC_LPUART2_CLKDIV =
         MRCC_MRCC_LPUART2_CLKDIV_RESET_MASK
         | MRCC_MRCC_LPUART2_CLKDIV_HALT_MASK;
 
     MRCC0->MRCC_LPUART2_CLKDIV =
-        MRCC_MRCC_LPUART2_CLKDIV_HALT_MASK;
+        MRCC_MRCC_LPUART2_CLKDIV_HALT_MASK
+        | MRCC_MRCC_LPUART2_CLKDIV_DIV(0U);
 
-    MRCC0->MRCC_LPUART2_CLKDIV = 0U;
+    MRCC0->MRCC_LPUART2_CLKDIV &=
+        ~MRCC_MRCC_LPUART2_CLKDIV_HALT_MASK;
 
-    SYSCON->CLKUNLOCK |= SYSCON_CLKUNLOCK_UNLOCK_MASK;
+    SYSCON->CLKUNLOCK = clkunlock;
 }
 
 
