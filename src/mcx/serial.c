@@ -31,14 +31,14 @@
  *
  *   pull select       = up
  *   pull enable       = enabled
- *   slew rate         = normal
+ *   slew rate         = fast
  *   mux               = ALT3
  *   input buffer      = enabled
  */
 #define UART_PIN_PCR \
     (PORT_PCR_PS(1) \
      | PORT_PCR_PE(1) \
-     | PORT_PCR_SRE(0) \
+     | PORT_PCR_SRE(1) \
      | PORT_PCR_MUX(3) \
      | PORT_PCR_IBE(1))
 
