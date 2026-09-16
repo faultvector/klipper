@@ -46,10 +46,7 @@ enable_port(uint32_t port)
 
     SYSCON->CLKUNLOCK &= ~SYSCON_CLKUNLOCK_UNLOCK_MASK;
 
-    volatile uint32_t *cc1_set =
-        (volatile uint32_t *)((uint32_t)&MRCC0->MRCC_GLB_CC0_SET + 0x10U);
-
-    *cc1_set = bit;
+    MRCC0->MRCC_GLB_CC1_SET = bit;
     MRCC0->MRCC_GLB_RST1_SET = bit;
 
     SYSCON->CLKUNLOCK |= SYSCON_CLKUNLOCK_UNLOCK_MASK;
@@ -66,15 +63,11 @@ enable_gpio(uint32_t port)
 
     SYSCON->CLKUNLOCK &= ~SYSCON_CLKUNLOCK_UNLOCK_MASK;
 
-    volatile uint32_t *cc2_set =
-        (volatile uint32_t *)((uint32_t)&MRCC0->MRCC_GLB_CC0_SET + 0x20U);
-
-    *cc2_set = bit;
+    MRCC0->MRCC_GLB_CC2_SET = bit;
     MRCC0->MRCC_GLB_RST2_SET = bit;
 
     SYSCON->CLKUNLOCK |= SYSCON_CLKUNLOCK_UNLOCK_MASK;
 }
-
 
 static GPIO_Type *
 gpio_pin_to_regs(uint32_t pin)
