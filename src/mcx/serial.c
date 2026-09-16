@@ -14,14 +14,6 @@
 
 #define UART LPUART2
 
-/*
- * LPUART2 uses FRO_LF_DIV.
- *
- * mcx_clock_init() configures the FRO12M peripheral output and sets
- * FRO_LF_DIV to divide-by-1, yielding a 12 MHz functional UART clock.
- */
-#define UART_CLOCK_FREQ 12000000U
-
 
 #define UART_CTRL_FLAGS \
     (LPUART_CTRL_RE_MASK \
@@ -149,6 +141,7 @@ setup_uart_baud(void)
     uint32_t best_diff = CONFIG_SERIAL_BAUD;
     uint32_t best_osr = 0;
     uint32_t best_sbr = 0;
+    uint32_t uart_clock = mcx_get_fro_lf_frequency();
 
     /*
      * LPUART baud:
@@ -161,8 +154,8 @@ setup_uart_baud(void)
         uint64_t denom = (uint64_t)CONFIG_SERIAL_BAUD * osr;
 
         uint32_t sbr =
-            (uint32_t)((((uint64_t)UART_CLOCK_FREQ * 2U) / denom + 1U)
-                       / 2U);
+            (uint32_t)((((uint64_t)uart_clock * 2U) / denom + 1U)
+                    / 2U);
 
         if (!sbr)
             sbr = 1;
@@ -175,7 +168,7 @@ setup_uart_baud(void)
             sbr = LPUART_BAUD_SBR_MASK;
 
         uint32_t actual =
-            UART_CLOCK_FREQ / (osr * sbr);
+            uart_clock / (osr * sbr);
 
         uint32_t diff = actual > CONFIG_SERIAL_BAUD
             ? actual - CONFIG_SERIAL_BAUD
