@@ -59,15 +59,16 @@ enable_port(uint32_t port)
         shutdown("Not a valid PORT");
 
     uint32_t bit = port_mrcc_masks[port];
-
-    SYSCON->CLKUNLOCK &= ~SYSCON_CLKUNLOCK_UNLOCK_MASK;
-
+    uint32_t clkunlock = SYSCON->CLKUNLOCK;
+    
+    SYSCON->CLKUNLOCK =
+        clkunlock & ~SYSCON_CLKUNLOCK_UNLOCK_MASK;
+    
     MRCC0->MRCC_GLB_CC1_SET = bit;
     MRCC0->MRCC_GLB_RST1_SET = bit;
-
-    SYSCON->CLKUNLOCK |= SYSCON_CLKUNLOCK_UNLOCK_MASK;
+    
+    SYSCON->CLKUNLOCK = clkunlock;
 }
-
 
 static void
 enable_gpio(uint32_t port)
@@ -76,13 +77,15 @@ enable_gpio(uint32_t port)
         shutdown("Not a valid GPIO port");
 
     uint32_t bit = gpio_mrcc_masks[port];
+    uint32_t clkunlock = SYSCON->CLKUNLOCK;
 
-    SYSCON->CLKUNLOCK &= ~SYSCON_CLKUNLOCK_UNLOCK_MASK;
+    SYSCON->CLKUNLOCK =
+        clkunlock & ~SYSCON_CLKUNLOCK_UNLOCK_MASK;
 
     MRCC0->MRCC_GLB_CC2_SET = bit;
     MRCC0->MRCC_GLB_RST2_SET = bit;
 
-    SYSCON->CLKUNLOCK |= SYSCON_CLKUNLOCK_UNLOCK_MASK;
+    SYSCON->CLKUNLOCK = clkunlock;
 }
 
 static GPIO_Type *
