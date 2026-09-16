@@ -27,6 +27,22 @@ static const uint32_t adc_mrcc_reset_masks[] = {
     MRCC_MRCC_GLB_RST1_ADC3_MASK,
 };
 
+static const uint32_t port_mrcc_clock_masks[] = {
+    MRCC_MRCC_GLB_CC1_PORT0_MASK,
+    MRCC_MRCC_GLB_CC1_PORT1_MASK,
+    MRCC_MRCC_GLB_CC1_PORT2_MASK,
+    MRCC_MRCC_GLB_CC1_PORT3_MASK,
+    MRCC_MRCC_GLB_CC1_PORT4_MASK,
+};
+
+static const uint32_t port_mrcc_reset_masks[] = {
+    MRCC_MRCC_GLB_RST1_PORT0_MASK,
+    MRCC_MRCC_GLB_RST1_PORT1_MASK,
+    MRCC_MRCC_GLB_RST1_PORT2_MASK,
+    MRCC_MRCC_GLB_RST1_PORT3_MASK,
+    MRCC_MRCC_GLB_RST1_PORT4_MASK,
+};
+
 enum {
     ADC_IDLE = 0xff,
 };
@@ -156,18 +172,17 @@ adc_pin_setup(uint32_t pin)
     if (port >= ARRAY_SIZE(port_regs))
         shutdown("Not a valid ADC pin");
 
-    // PORT0..PORT4 are in CC1/RST1 bits 12..16.
-    uint32_t bit = 1U << (12U + port);
+    uint32_t clock_mask = port_mrcc_clock_masks[port];
+    uint32_t reset_mask = port_mrcc_reset_masks[port];
+    uint32_t clkunlock = SYSCON->CLKUNLOCK;
 
-    SYSCON->CLKUNLOCK &= ~SYSCON_CLKUNLOCK_UNLOCK_MASK;
+    SYSCON->CLKUNLOCK =
+        clkunlock & ~SYSCON_CLKUNLOCK_UNLOCK_MASK;
 
-    volatile uint32_t *cc1_set =
-        (volatile uint32_t *)((uint32_t)&MRCC0->MRCC_GLB_CC0_SET + 0x10U);
+    MRCC0->MRCC_GLB_CC1_SET = clock_mask;
+    MRCC0->MRCC_GLB_RST1_SET = reset_mask;
 
-    *cc1_set = bit;
-    MRCC0->MRCC_GLB_RST1_SET = bit;
-
-    SYSCON->CLKUNLOCK |= SYSCON_CLKUNLOCK_UNLOCK_MASK;
+    SYSCON->CLKUNLOCK = clkunlock;
 
     PORT_Type *regs = port_regs[port];
 
