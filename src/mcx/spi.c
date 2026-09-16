@@ -140,24 +140,6 @@ spi1_init(void)
     spi1_initialized = 1;
 }
 
-// static void
-// spi1_init(void)
-// {
-//     LPSPI_Type *spi = LPSPI1;
-
-//     spi1_clock_setup();
-//     spi1_pin_setup();
-
-//     spi->CR = LPSPI_CR_RRF_MASK | LPSPI_CR_RTF_MASK;
-//     spi->IER = 0U;
-//     spi->CR = 0U;
-
-//     spi->CFGR1 =
-//         LPSPI_CFGR1_MASTER_MASK
-//         | LPSPI_CFGR1_PINCFG(0U);
-
-//     spi->FCR = 0U;
-// }
 
 static void
 spi_calc_rate(uint32_t rate, uint32_t *prescale, uint32_t *scaler)
@@ -210,12 +192,6 @@ spi_setup(uint32_t bus, uint8_t mode, uint32_t rate)
     if (mode > 3U)
         shutdown("Invalid spi mode");
 
-    /*
-     * Only one hardware SPI bus is currently exposed.
-     *
-     * Reinitializing it here keeps first-light bring-up deterministic.
-     * We can move this to one-time initialization later if necessary.
-     */
     spi1_init();
 
     uint32_t prescale, scaler;
