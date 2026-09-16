@@ -28,17 +28,11 @@ static uint8_t spi1_initialized;
 
 struct spi_info {
     LPSPI_Type *spi;
-    uint32_t miso;
-    uint32_t mosi;
-    uint32_t sck;
 };
 
 static const struct spi_info spi_bus[] = {
     {
         .spi = LPSPI1,
-        .miso = GPIO(3, 9),
-        .mosi = GPIO(3, 8),
-        .sck = GPIO(3, 10),
     },
 };
 
