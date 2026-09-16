@@ -165,11 +165,13 @@ regs_to_pin(GPIO_Type *regs, uint32_t bit)
     if (port >= ARRAY_SIZE(gpio_regs))
         shutdown("Not a valid GPIO register");
 
+    if (!bit || (bit & (bit - 1)))
+        shutdown("Not a valid GPIO bit");
+
     uint32_t pin = __builtin_ctz(bit);
 
     return GPIO(port, pin);
 }
-
 void
 gpio_out_reset(struct gpio_out g, uint32_t val)
 {
