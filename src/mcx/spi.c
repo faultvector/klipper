@@ -24,6 +24,7 @@
 DECL_ENUMERATION("spi_bus", "spi1", 0);
 DECL_CONSTANT_STR("BUS_PINS_spi1", "P3_9,P3_8,P3_10");
 
+static uint8_t spi1_initialized;
 
 struct spi_info {
     LPSPI_Type *spi;
@@ -109,44 +110,34 @@ spi1_pin_setup(void)
         | PORT_PCR_IBE_MASK;
 }
 
+
 static void
 spi1_init(void)
 {
+    if (spi1_initialized)
+        return;
+
     LPSPI_Type *spi = LPSPI1;
 
     spi1_clock_setup();
     spi1_pin_setup();
 
-    /*
-     * Reset both FIFOs.
-     */
+    // Reset both FIFOs.
     spi->CR = LPSPI_CR_RRF_MASK | LPSPI_CR_RTF_MASK;
 
-    /*
-     * No interrupts. Initial implementation is entirely polling based.
-     */
+    // Polling implementation; no interrupts.
     spi->IER = 0U;
 
-    /*
-     * Leave the peripheral disabled while programming configuration.
-     */
+    // Leave the peripheral disabled while configuring it.
     spi->CR = 0U;
 
-    /*
-     * Configure:
-     *
-     *     master mode
-     *     PINCFG=0: normal SDI input / SDO output
-     *     peripheral stalling enabled
-     */
     spi->CFGR1 =
         LPSPI_CFGR1_MASTER_MASK
         | LPSPI_CFGR1_PINCFG(0U);
 
-    /*
-     * TX and RX FIFO watermark = 0.
-     */
     spi->FCR = 0U;
+
+    spi1_initialized = 1;
 }
 
 // static void
