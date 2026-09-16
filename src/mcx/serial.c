@@ -228,11 +228,10 @@ setup_uart_fifo(void)
 static void
 clear_uart_status(void)
 {
-    /*
-     * Clear the writable status/error flags before enabling the UART.
-     */
-    UART->STAT =
-        LPUART_STAT_OR_MASK
+    UART->STAT |=
+        LPUART_STAT_RXEDGIF_MASK
+        | LPUART_STAT_IDLE_MASK
+        | LPUART_STAT_OR_MASK
         | LPUART_STAT_NF_MASK
         | LPUART_STAT_FE_MASK
         | LPUART_STAT_PF_MASK;
