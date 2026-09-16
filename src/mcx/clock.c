@@ -27,6 +27,8 @@ set_main_clock(uint32_t source)
 static void
 set_clock_divider(volatile uint32_t *reg, uint32_t value)
 {
+    uint32_t clkunlock = SYSCON->CLKUNLOCK;
+
     /*
      * Match NXP CLOCK_SetClockDiv() for ordinary clock dividers.
      *
@@ -34,7 +36,8 @@ set_clock_divider(volatile uint32_t *reg, uint32_t value)
      *
      *     value = 1 -> register DIV field = 0
      */
-    SYSCON->CLKUNLOCK &= ~SYSCON_CLKUNLOCK_UNLOCK_MASK;
+    SYSCON->CLKUNLOCK =
+        clkunlock & ~SYSCON_CLKUNLOCK_UNLOCK_MASK;
 
     /*
      * Assert RESET and HALT.
@@ -58,7 +61,7 @@ set_clock_divider(volatile uint32_t *reg, uint32_t value)
         *reg &= ~(1UL << 30U);
     }
 
-    SYSCON->CLKUNLOCK |= SYSCON_CLKUNLOCK_UNLOCK_MASK;
+    SYSCON->CLKUNLOCK = clkunlock;
 }
 
 
@@ -127,17 +130,20 @@ setup_power_240mhz(void)
 static void
 setup_ahb_divider(void)
 {
+    uint32_t clkunlock = SYSCON->CLKUNLOCK;
+
     /*
      * AHBCLKDIV is special. Unlike most MCXA clock dividers it does
      * not implement RESET/HALT bits.
      *
      * Divide-by-1 is encoded as zero.
      */
-    SYSCON->CLKUNLOCK &= ~SYSCON_CLKUNLOCK_UNLOCK_MASK;
+    SYSCON->CLKUNLOCK =
+        clkunlock & ~SYSCON_CLKUNLOCK_UNLOCK_MASK;
 
     SYSCON->AHBCLKDIV = 0U;
 
-    SYSCON->CLKUNLOCK |= SYSCON_CLKUNLOCK_UNLOCK_MASK;
+    SYSCON->CLKUNLOCK = clkunlock;
 }
 
 
