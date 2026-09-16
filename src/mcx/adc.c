@@ -5,6 +5,7 @@
 // This file may be distributed under the terms of the GNU GPLv3 license.
 
 #include "board/misc.h" // timer_from_us
+#include "generic/armcm_timer.h" // udelay
 #include "command.h" // DECL_CONSTANT
 #include "gpio.h" // gpio_adc_setup
 #include "internal.h" // GPIO
@@ -103,6 +104,37 @@ static struct adc_status adc_status[] = {
 
 
 static uint8_t adc_initialized;
+
+
+static void
+adc_calibrate(ADC_Type *regs)
+{
+    // NXP requires at least 1 us after enabling the ADC before
+    // requesting auto calibration.
+    udelay(1);
+
+    regs->CTRL |= ADC_CTRL_CAL_REQ_MASK;
+
+    while (!(regs->GCC[0] & ADC_GCC_RDY_MASK))
+        ;
+
+    uint32_t gain_cal =
+        (regs->GCC[0] & ADC_GCC_GAIN_CAL_MASK)
+        >> ADC_GCC_GAIN_CAL_SHIFT;
+
+    int32_t gain = (int16_t)gain_cal;
+
+    uint32_t gcalr =
+        ((uint64_t)131072U << 16)
+        / (uint32_t)(131072 - gain);
+
+    regs->GCR[0] =
+        ADC_GCR_GCALR(gcalr)
+        | ADC_GCR_RDY_MASK;
+
+    while (!(regs->STAT & ADC_STAT_CAL_RDY_MASK))
+        ;
+}
 
 
 static uint32_t
@@ -234,7 +266,7 @@ adc_init(ADC_Type *regs)
 
     regs->CTRL |= ADC_CTRL_ADCEN_MASK;
 
-    // TODO: Port the MCXA366 offset and gain calibration sequence.
+    adc_calibrate(regs);
 }
 
 
