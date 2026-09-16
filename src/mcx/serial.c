@@ -56,23 +56,10 @@ DECL_CONSTANT_STR("RESERVE_PINS_serial", "P2_3,P2_2");
 static void
 enable_peripheral_clocks(void)
 {
-    /*
-     * LPUART2:
-     *   MRCC CC0 bit 25
-     *
-     * PORT2:
-     *   MRCC CC1 bit 14
-     *
-     * CC1 SET is 0x10 bytes after CC0 SET.
-     */
     SYSCON->CLKUNLOCK &= ~SYSCON_CLKUNLOCK_UNLOCK_MASK;
 
     MRCC0->MRCC_GLB_CC0_SET = 1U << 25;
-
-    volatile uint32_t *cc1_set =
-        (volatile uint32_t *)((uint32_t)&MRCC0->MRCC_GLB_CC0_SET + 0x10U);
-
-    *cc1_set = 1U << 14;
+    MRCC0->MRCC_GLB_CC1_SET = 1U << 14;
 
     SYSCON->CLKUNLOCK |= SYSCON_CLKUNLOCK_UNLOCK_MASK;
 }
