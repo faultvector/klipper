@@ -35,7 +35,7 @@ static PORT_Type * const port_regs[] = {
     PORT4,
 };
 
-static const uint32_t port_mrcc_masks[] = {
+static const uint32_t port_mrcc_clock_masks[] = {
     MRCC_MRCC_GLB_CC1_PORT0_MASK,
     MRCC_MRCC_GLB_CC1_PORT1_MASK,
     MRCC_MRCC_GLB_CC1_PORT2_MASK,
@@ -43,7 +43,15 @@ static const uint32_t port_mrcc_masks[] = {
     MRCC_MRCC_GLB_CC1_PORT4_MASK,
 };
 
-static const uint32_t gpio_mrcc_masks[] = {
+static const uint32_t port_mrcc_reset_masks[] = {
+    MRCC_MRCC_GLB_RST1_PORT0_MASK,
+    MRCC_MRCC_GLB_RST1_PORT1_MASK,
+    MRCC_MRCC_GLB_RST1_PORT2_MASK,
+    MRCC_MRCC_GLB_RST1_PORT3_MASK,
+    MRCC_MRCC_GLB_RST1_PORT4_MASK,
+};
+
+static const uint32_t gpio_mrcc_clock_masks[] = {
     MRCC_MRCC_GLB_CC2_GPIO0_MASK,
     MRCC_MRCC_GLB_CC2_GPIO1_MASK,
     MRCC_MRCC_GLB_CC2_GPIO2_MASK,
@@ -51,6 +59,13 @@ static const uint32_t gpio_mrcc_masks[] = {
     MRCC_MRCC_GLB_CC2_GPIO4_MASK,
 };
 
+static const uint32_t gpio_mrcc_reset_masks[] = {
+    MRCC_MRCC_GLB_RST2_GPIO0_MASK,
+    MRCC_MRCC_GLB_RST2_GPIO1_MASK,
+    MRCC_MRCC_GLB_RST2_GPIO2_MASK,
+    MRCC_MRCC_GLB_RST2_GPIO3_MASK,
+    MRCC_MRCC_GLB_RST2_GPIO4_MASK,
+};
 
 static void
 enable_port(uint32_t port)
@@ -58,15 +73,16 @@ enable_port(uint32_t port)
     if (port >= ARRAY_SIZE(port_regs))
         shutdown("Not a valid PORT");
 
-    uint32_t bit = port_mrcc_masks[port];
+    uint32_t clock_mask = port_mrcc_clock_masks[port];
+    uint32_t reset_mask = port_mrcc_reset_masks[port];
     uint32_t clkunlock = SYSCON->CLKUNLOCK;
-    
+
     SYSCON->CLKUNLOCK =
         clkunlock & ~SYSCON_CLKUNLOCK_UNLOCK_MASK;
-    
-    MRCC0->MRCC_GLB_CC1_SET = bit;
-    MRCC0->MRCC_GLB_RST1_SET = bit;
-    
+
+    MRCC0->MRCC_GLB_CC1_SET = clock_mask;
+    MRCC0->MRCC_GLB_RST1_SET = reset_mask;
+
     SYSCON->CLKUNLOCK = clkunlock;
 }
 
@@ -76,14 +92,15 @@ enable_gpio(uint32_t port)
     if (port >= ARRAY_SIZE(gpio_regs))
         shutdown("Not a valid GPIO port");
 
-    uint32_t bit = gpio_mrcc_masks[port];
+    uint32_t clock_mask = gpio_mrcc_clock_masks[port];
+    uint32_t reset_mask = gpio_mrcc_reset_masks[port];
     uint32_t clkunlock = SYSCON->CLKUNLOCK;
 
     SYSCON->CLKUNLOCK =
         clkunlock & ~SYSCON_CLKUNLOCK_UNLOCK_MASK;
 
-    MRCC0->MRCC_GLB_CC2_SET = bit;
-    MRCC0->MRCC_GLB_RST2_SET = bit;
+    MRCC0->MRCC_GLB_CC2_SET = clock_mask;
+    MRCC0->MRCC_GLB_RST2_SET = reset_mask;
 
     SYSCON->CLKUNLOCK = clkunlock;
 }
