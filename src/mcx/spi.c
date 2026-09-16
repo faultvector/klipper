@@ -162,23 +162,14 @@ spi1_init(void)
 static void
 spi_calc_rate(uint32_t rate, uint32_t *prescale, uint32_t *scaler)
 {
-    uint32_t best_prescale = 7U;
-    uint32_t best_scaler = 255U;
+    uint32_t best_prescale = 0U;
+    uint32_t best_scaler = 0U;
     uint32_t best_diff = 0xffffffffU;
+    uint8_t found_rate = 0;
 
     if (!rate)
         shutdown("Invalid spi rate");
 
-    /*
-     * MCXA366 LPSPI master clock:
-     *
-     *                    source clock
-     *     SCK = --------------------------------
-     *           2^PRESCALE * (SCKDIV + 2)
-     *
-     * Match the NXP SDK behavior: find the closest frequency that
-     * does not exceed the requested rate.
-     */
     for (uint32_t p = 0U; p < 8U; p++) {
         for (uint32_t s = 0U; s < 256U; s++) {
             uint32_t actual =
@@ -188,10 +179,12 @@ spi_calc_rate(uint32_t rate, uint32_t *prescale, uint32_t *scaler)
                 continue;
 
             uint32_t diff = rate - actual;
+
             if (diff < best_diff) {
                 best_diff = diff;
                 best_prescale = p;
                 best_scaler = s;
+                found_rate = 1;
 
                 if (!diff)
                     goto found;
@@ -199,10 +192,14 @@ spi_calc_rate(uint32_t rate, uint32_t *prescale, uint32_t *scaler)
         }
     }
 
+    if (!found_rate)
+        shutdown("SPI rate too low");
+
 found:
     *prescale = best_prescale;
     *scaler = best_scaler;
 }
+
 
 struct spi_config
 spi_setup(uint32_t bus, uint8_t mode, uint32_t rate)
