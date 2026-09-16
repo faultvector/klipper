@@ -35,6 +35,22 @@ static PORT_Type * const port_regs[] = {
     PORT4,
 };
 
+static const uint32_t port_mrcc_masks[] = {
+    MRCC_MRCC_GLB_CC1_PORT0_MASK,
+    MRCC_MRCC_GLB_CC1_PORT1_MASK,
+    MRCC_MRCC_GLB_CC1_PORT2_MASK,
+    MRCC_MRCC_GLB_CC1_PORT3_MASK,
+    MRCC_MRCC_GLB_CC1_PORT4_MASK,
+};
+
+static const uint32_t gpio_mrcc_masks[] = {
+    MRCC_MRCC_GLB_CC2_GPIO0_MASK,
+    MRCC_MRCC_GLB_CC2_GPIO1_MASK,
+    MRCC_MRCC_GLB_CC2_GPIO2_MASK,
+    MRCC_MRCC_GLB_CC2_GPIO3_MASK,
+    MRCC_MRCC_GLB_CC2_GPIO4_MASK,
+};
+
 
 static void
 enable_port(uint32_t port)
@@ -42,7 +58,7 @@ enable_port(uint32_t port)
     if (port >= ARRAY_SIZE(port_regs))
         shutdown("Not a valid PORT");
 
-    uint32_t bit = 1U << (12U + port);
+    uint32_t bit = port_mrcc_masks[port];
 
     SYSCON->CLKUNLOCK &= ~SYSCON_CLKUNLOCK_UNLOCK_MASK;
 
@@ -59,7 +75,7 @@ enable_gpio(uint32_t port)
     if (port >= ARRAY_SIZE(gpio_regs))
         shutdown("Not a valid GPIO port");
 
-    uint32_t bit = 1U << (4U + port);
+    uint32_t bit = gpio_mrcc_masks[port];
 
     SYSCON->CLKUNLOCK &= ~SYSCON_CLKUNLOCK_UNLOCK_MASK;
 
