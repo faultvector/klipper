@@ -181,6 +181,9 @@ setup_uart_baud(void)
         }
     }
 
+    if (best_diff >= (CONFIG_SERIAL_BAUD / 100U) * 3U)
+        shutdown("Serial baud rate not supported");
+
     uint32_t baud = UART->BAUD;
 
     baud &= ~(LPUART_BAUD_OSR_MASK
