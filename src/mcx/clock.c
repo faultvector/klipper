@@ -220,6 +220,12 @@ setup_fro240m(void)
     set_clock_divider(&SYSCON->FROHFDIV, 1U);
 }
 
+uint32_t
+mcx_get_fro_lf_frequency(void)
+{
+    return 12000000U;
+}
+
 
 uint32_t
 mcx_get_fro_hf_frequency(void)

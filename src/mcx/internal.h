@@ -8,6 +8,7 @@
 #define GPIO2PIN(PIN)   ((PIN) & 0x1f)
 #define GPIO2BIT(PIN)   (1U << GPIO2PIN(PIN))
 
+uint32_t mcx_get_fro_lf_frequency(void);
 uint32_t mcx_get_fro_hf_frequency(void);
 
 #endif // internal.h

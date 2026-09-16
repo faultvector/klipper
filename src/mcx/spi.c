@@ -143,13 +143,15 @@ spi_calc_rate(uint32_t rate, uint32_t *prescale, uint32_t *scaler)
     uint32_t best_diff = 0xffffffffU;
     uint8_t found_rate = 0;
 
+    uint32_t spi_clock = mcx_get_fro_lf_frequency();
+
     if (!rate)
         shutdown("Invalid spi rate");
 
     for (uint32_t p = 0U; p < 8U; p++) {
         for (uint32_t s = 0U; s < 256U; s++) {
             uint32_t actual =
-                LPSPI1_CLOCK / ((1U << p) * (s + 2U));
+                spi_clock / ((1U << p) * (s + 2U));
 
             if (actual > rate)
                 continue;
