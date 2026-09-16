@@ -115,21 +115,18 @@ setup_uart_clock(void)
 static void
 reset_uart(void)
 {
-    /*
-     * LPUART2:
-     *   MRCC reset register 0, bit 25
-     *
-     * CLR asserts reset.
-     * SET releases reset.
-     *
-     * This matches NXP RESET_PeripheralReset().
-     */
-    SYSCON->CLKUNLOCK &= ~SYSCON_CLKUNLOCK_UNLOCK_MASK;
+    uint32_t clkunlock = SYSCON->CLKUNLOCK;
 
-    MRCC0->MRCC_GLB_RST0_CLR = 1U << 25;
-    MRCC0->MRCC_GLB_RST0_SET = 1U << 25;
+    SYSCON->CLKUNLOCK =
+        clkunlock & ~SYSCON_CLKUNLOCK_UNLOCK_MASK;
 
-    SYSCON->CLKUNLOCK |= SYSCON_CLKUNLOCK_UNLOCK_MASK;
+    MRCC0->MRCC_GLB_RST0_CLR =
+        MRCC_MRCC_GLB_RST0_LPUART2_MASK;
+
+    MRCC0->MRCC_GLB_RST0_SET =
+        MRCC_MRCC_GLB_RST0_LPUART2_MASK;
+
+    SYSCON->CLKUNLOCK = clkunlock;
 }
 
 
