@@ -13,6 +13,19 @@
 
 DECL_CONSTANT("ADC_MAX", 4095);
 
+static const uint32_t adc_mrcc_clock_masks[] = {
+    MRCC_MRCC_GLB_CC1_ADC0_MASK,
+    MRCC_MRCC_GLB_CC1_ADC1_MASK,
+    MRCC_MRCC_GLB_CC1_ADC2_MASK,
+    MRCC_MRCC_GLB_CC1_ADC3_MASK,
+};
+
+static const uint32_t adc_mrcc_reset_masks[] = {
+    MRCC_MRCC_GLB_RST1_ADC0_MASK,
+    MRCC_MRCC_GLB_RST1_ADC1_MASK,
+    MRCC_MRCC_GLB_RST1_ADC2_MASK,
+    MRCC_MRCC_GLB_RST1_ADC3_MASK,
+};
 
 enum {
     ADC_IDLE = 0xff,
@@ -117,24 +130,20 @@ configure_adc_clock(void)
 static void
 enable_adc_clock(uint32_t index)
 {
-    static const uint8_t gate_bits[] = {
-        2, 3, 28, 29,
-    };
-
-    if (index >= ARRAY_SIZE(gate_bits))
+    if (index >= ARRAY_SIZE(adc_mrcc_clock_masks))
         shutdown("Not a valid ADC");
 
-    uint32_t bit = 1U << gate_bits[index];
+    uint32_t clock_mask = adc_mrcc_clock_masks[index];
+    uint32_t reset_mask = adc_mrcc_reset_masks[index];
+    uint32_t clkunlock = SYSCON->CLKUNLOCK;
 
-    SYSCON->CLKUNLOCK &= ~SYSCON_CLKUNLOCK_UNLOCK_MASK;
+    SYSCON->CLKUNLOCK =
+        clkunlock & ~SYSCON_CLKUNLOCK_UNLOCK_MASK;
 
-    volatile uint32_t *cc1_set =
-        (volatile uint32_t *)((uint32_t)&MRCC0->MRCC_GLB_CC0_SET + 0x10U);
+    MRCC0->MRCC_GLB_CC1_SET = clock_mask;
+    MRCC0->MRCC_GLB_RST1_SET = reset_mask;
 
-    *cc1_set = bit;
-    MRCC0->MRCC_GLB_RST1_SET = bit;
-
-    SYSCON->CLKUNLOCK |= SYSCON_CLKUNLOCK_UNLOCK_MASK;
+    SYSCON->CLKUNLOCK = clkunlock;
 }
 
 
