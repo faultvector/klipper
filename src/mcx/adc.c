@@ -161,7 +161,8 @@ configure_adc_clock(void)
         clkunlock & ~SYSCON_CLKUNLOCK_UNLOCK_MASK;
 
     // FRO_HF -> ADC.
-    MRCC0->MRCC_ADC_CLKSEL = 1U;
+    MRCC0->MRCC_ADC_CLKSEL =
+        MRCC_MRCC_ADC_CLKSEL_MUX(1);
 
     // Match CLOCK_SetClockDiv(kCLOCK_DivADC, 3U).
     MRCC0->MRCC_ADC_CLKDIV =
@@ -250,12 +251,12 @@ adc_init(ADC_Type *regs)
 
     // Match the FRDM-MCXA366 LPADC example:
     //   REFSEL=2 -> Alt3 -> VDDA
-    //   PWRSEL=3 -> highest power setting
+    //   PWRSEL=1 -> high power
     //   PWREN=1  -> analog preliminary enabled
     regs->CFG =
         ADC_CFG_PUDLY(0x80)
         | ADC_CFG_REFSEL(2)
-        | ADC_CFG_PWRSEL(3)
+        | ADC_CFG_PWRSEL(1)
         | ADC_CFG_PWREN(1)
         | ADC_CFG_TPRICTRL(0);
 
