@@ -122,7 +122,10 @@ adc_get_index(ADC_Type *regs)
 static void
 configure_adc_clock(void)
 {
-    SYSCON->CLKUNLOCK &= ~SYSCON_CLKUNLOCK_UNLOCK_MASK;
+    uint32_t clkunlock = SYSCON->CLKUNLOCK;
+
+    SYSCON->CLKUNLOCK =
+        clkunlock & ~SYSCON_CLKUNLOCK_UNLOCK_MASK;
 
     // FRO_HF -> ADC.
     MRCC0->MRCC_ADC_CLKSEL = 1U;
@@ -139,7 +142,7 @@ configure_adc_clock(void)
     MRCC0->MRCC_ADC_CLKDIV &=
         ~MRCC_MRCC_ADC_CLKDIV_HALT_MASK;
 
-    SYSCON->CLKUNLOCK |= SYSCON_CLKUNLOCK_UNLOCK_MASK;
+    SYSCON->CLKUNLOCK = clkunlock;
 }
 
 
