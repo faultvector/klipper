@@ -25,40 +25,38 @@ set_main_clock(uint32_t source)
 
 
 static void
-set_clock_divider(volatile uint32_t *reg, uint32_t value)
+set_clock_divider(volatile uint32_t *reg, uint32_t value,
+                  uint32_t div_mask, uint32_t div_shift,
+                  uint32_t reset_mask, uint32_t halt_mask)
 {
     uint32_t clkunlock = SYSCON->CLKUNLOCK;
 
-    /*
-     * Match NXP CLOCK_SetClockDiv() for ordinary clock dividers.
-     *
-     * value is the actual divider:
-     *
-     *     value = 1 -> register DIV field = 0
-     */
     SYSCON->CLKUNLOCK =
         clkunlock & ~SYSCON_CLKUNLOCK_UNLOCK_MASK;
 
     /*
      * Assert RESET and HALT.
      */
-    *reg = 0x3UL << 29U;
+    *reg = reset_mask | halt_mask;
 
     if (!value) {
         /*
          * Leave divider halted.
          */
-        *reg |= 1UL << 30U;
+        *reg |= halt_mask;
     } else {
+        uint32_t div =
+            ((value - 1U) << div_shift) & div_mask;
+
         /*
          * Program divider while HALT remains asserted.
          */
-        *reg = (value - 1U) | (1UL << 30U);
+        *reg = div | halt_mask;
 
         /*
          * Release HALT.
          */
-        *reg &= ~(1UL << 30U);
+        *reg &= ~halt_mask;
     }
 
     SYSCON->CLKUNLOCK = clkunlock;
@@ -166,7 +164,13 @@ setup_fro12m(void)
     /*
      * FRO_LF_DIV = /1.
      */
-    set_clock_divider(&SYSCON->FROLFDIV, 1U);
+    set_clock_divider(
+        &SYSCON->FROLFDIV,
+        1U,
+        SYSCON_FROLFDIV_DIV_MASK,
+        SYSCON_FROLFDIV_DIV_SHIFT,
+        SYSCON_FROLFDIV_RESET_MASK,
+        SYSCON_FROLFDIV_HALT_MASK);
 }
 
 
@@ -223,7 +227,13 @@ setup_fro240m(void)
     /*
      * FRO_HF_DIV = /1.
      */
-    set_clock_divider(&SYSCON->FROHFDIV, 1U);
+    set_clock_divider(
+        &SYSCON->FROHFDIV,
+        1U,
+        SYSCON_FROHFDIV_DIV_MASK,
+        SYSCON_FROHFDIV_DIV_SHIFT,
+        SYSCON_FROHFDIV_RESET_MASK,
+        SYSCON_FROHFDIV_HALT_MASK);
 }
 
 uint32_t
