@@ -76,19 +76,10 @@ spi1_clock_setup(void)
 static void
 spi1_pin_setup(void)
 {
-    /*
-     * LPSPI1:
-     *
-     *     P3_8  = SDO / MOSI
-     *     P3_9  = SDI / MISO
-     *     P3_10 = SCK
-     *
-     * All three use ALT2.
-     *
-     * P3_11 can provide LPSPI1_PCS0, but we intentionally leave it
-     * as GPIO because Klipper handles chip select outside the SPI
-     * peripheral.
-     */
+    uint32_t clkunlock = SYSCON->CLKUNLOCK;
+
+    SYSCON->CLKUNLOCK =
+        clkunlock & ~SYSCON_CLKUNLOCK_UNLOCK_MASK;
 
     /*
      * PORT3 is bit 15 in CC1/RST1.
@@ -96,15 +87,8 @@ spi1_pin_setup(void)
     MRCC0->MRCC_GLB_CC1_SET = 1U << 15;
     MRCC0->MRCC_GLB_RST1_SET = 1U << 15;
 
-    /*
-     * Match the important parts of NXP's generated pin configuration:
-     *
-     *     ALT2
-     *     pull disabled
-     *     fast slew
-     *     open drain disabled
-     *     digital input buffer enabled
-     */
+    SYSCON->CLKUNLOCK = clkunlock;
+
     PORT3->PCR[8] =
         PORT_PCR_MUX(2U)
         | PORT_PCR_SRE_MASK
