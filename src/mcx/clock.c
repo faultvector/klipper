@@ -7,8 +7,7 @@
 #include "internal.h"
 
 
-#define IFR1_ADDR           0x01100000U
-#define IFR1_240M_TRIM      (*(volatile uint32_t *)(IFR1_ADDR + 0x874U))
+#define MCXA366_FIRC_240M_TRIM_ADDR  0x01100874U
 #define FIRC_TRIM_KEY       0x5A5AU
 
 #define MCX_MAIN_CLOCK_SIRC  2U
@@ -179,7 +178,12 @@ setup_fro12m(void)
 static void
 setup_fro240m(void)
 {
-    uint32_t trim_value = IFR1_240M_TRIM;
+    /*
+    * Load the MCXA366 factory-programmed 240 MHz FRO_HF trim
+    * from IFR1.
+    */
+    uint32_t trim_value =
+        *(volatile uint32_t *)MCXA366_FIRC_240M_TRIM_ADDR;
     uint32_t current_source =
         (SCG0->CSR & SCG_CSR_SCS_MASK) >> SCG_CSR_SCS_SHIFT;
 
