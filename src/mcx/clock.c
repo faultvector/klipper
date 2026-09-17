@@ -154,9 +154,8 @@ setup_fro12m(void)
      * LPUART2 uses FRO_LF_DIV, and FRO12M also provides a safe
      * temporary MAIN_CLK source while FRO_HF is reconfigured.
      */
-    SCG0->SIRCCSR &= ~SCG_SIRCCSR_LK_MASK;
-    SCG0->SIRCCSR |= SCG_SIRCCSR_SIRC_CLK_PERIPH_EN_MASK;
-    SCG0->SIRCCSR |= SCG_SIRCCSR_LK_MASK;
+    SCG0->SIRCCSR |=
+        SCG_SIRCCSR_SIRC_CLK_PERIPH_EN_MASK;
 
     while (!(SCG0->SIRCCSR & SCG_SIRCCSR_SIRCVLD_MASK))
         ;
@@ -172,7 +171,6 @@ setup_fro12m(void)
         SYSCON_FROLFDIV_RESET_MASK,
         SYSCON_FROLFDIV_HALT_MASK);
 }
-
 
 static void
 setup_fro240m(void)
