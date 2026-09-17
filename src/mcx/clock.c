@@ -7,8 +7,10 @@
 #include "internal.h"
 
 
-#define IFR1_ADDR       0x01100000U
-#define IFR1_240M_TRIM  (*(volatile uint32_t *)(IFR1_ADDR + 0x874U))
+#define IFR1_ADDR           0x01100000U
+#define IFR1_240M_TRIM      (*(volatile uint32_t *)(IFR1_ADDR + 0x874U))
+#define FIRC_TRIM_KEY       0x5A5AU
+
 #define MCX_MAIN_CLOCK_SIRC  2U
 #define MCX_MAIN_CLOCK_FIRC  3U
 
@@ -197,9 +199,15 @@ setup_fro240m(void)
      * Load the factory 240 MHz FRO_HF trim from IFR1.
      */
     if (SCG0->FIRCTRIM != trim_value) {
-        SCG0->TRIM_LOCK = 0x5A5A0001U;
+        SCG0->TRIM_LOCK =
+            SCG_TRIM_LOCK_TRIM_LOCK_KEY(FIRC_TRIM_KEY)
+            | SCG_TRIM_LOCK_TRIM_UNLOCK(1U);
+        
         SCG0->FIRCTRIM = trim_value;
-        SCG0->TRIM_LOCK = 0x5A5A0000U;
+        
+        SCG0->TRIM_LOCK =
+            SCG_TRIM_LOCK_TRIM_LOCK_KEY(FIRC_TRIM_KEY)
+            | SCG_TRIM_LOCK_TRIM_UNLOCK(0U);
     }
 
     /*
