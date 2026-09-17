@@ -13,6 +13,11 @@
 #define MCX_MAIN_CLOCK_SIRC  2U
 #define MCX_MAIN_CLOCK_FIRC  3U
 
+#define MCXA366_CORELDO_DRIVE_NORMAL   1U
+#define MCXA366_CORELDO_VOLTAGE_1V2    3U
+#define MCXA366_SRAM_VOLTAGE_1V2       3U
+#define MCXA366_FLASH_WAIT_STATES_240M  4U
+
 
 static void
 set_main_clock(uint32_t source)
@@ -85,14 +90,14 @@ setup_power_240mhz(void)
     SPC0->ACTIVE_CFG =
         (SPC0->ACTIVE_CFG
          & ~SPC_ACTIVE_CFG_CORELDO_VDD_DS_MASK)
-        | SPC_ACTIVE_CFG_CORELDO_VDD_DS(1U);
+        | SPC_ACTIVE_CFG_CORELDO_VDD_DS(MCXA366_CORELDO_DRIVE_NORMAL);
 
     if ((SPC0->ACTIVE_CFG & SPC_ACTIVE_CFG_CORELDO_VDD_LVL_MASK)
-        != SPC_ACTIVE_CFG_CORELDO_VDD_LVL(3U)) {
+        != SPC_ACTIVE_CFG_CORELDO_VDD_LVL(MCXA366_CORELDO_VOLTAGE_1V2)) {
         SPC0->ACTIVE_CFG =
             (SPC0->ACTIVE_CFG
              & ~SPC_ACTIVE_CFG_CORELDO_VDD_LVL_MASK)
-            | SPC_ACTIVE_CFG_CORELDO_VDD_LVL(3U);
+            | SPC_ACTIVE_CFG_CORELDO_VDD_LVL(MCXA366_CORELDO_VOLTAGE_1V2);
 
         while (SPC0->SC & SPC_SC_BUSY_MASK)
             ;
@@ -104,7 +109,7 @@ setup_power_240mhz(void)
     SPC0->ACTIVE_CFG =
         (SPC0->ACTIVE_CFG
          & ~SPC_ACTIVE_CFG_CORELDO_VDD_DS_MASK)
-        | SPC_ACTIVE_CFG_CORELDO_VDD_DS(1U);
+        | SPC_ACTIVE_CFG_CORELDO_VDD_DS(MCXA366_CORELDO_DRIVE_NORMAL);
 
     /*
      * Four additional flash wait states are required above 90 MHz
@@ -112,13 +117,13 @@ setup_power_240mhz(void)
      */
     FMU0->FCTRL =
         (FMU0->FCTRL & ~FMU_FCTRL_RWSC_MASK)
-        | FMU_FCTRL_RWSC(4U);
+        | FMU_FCTRL_RWSC(MCXA366_FLASH_WAIT_STATES_240M);
 
     /*
      * Configure SRAM timing for 1.2 V operation and request that
      * the hardware apply the new voltage setting.
      */
-    SPC0->SRAMCTL = SPC_SRAMCTL_VSM(3U);
+    SPC0->SRAMCTL = SPC_SRAMCTL_VSM(MCXA366_SRAM_VOLTAGE_1V2);
     SPC0->SRAMCTL |= SPC_SRAMCTL_REQ_MASK;
 
     while (!(SPC0->SRAMCTL & SPC_SRAMCTL_ACK_MASK))
