@@ -152,14 +152,17 @@ setup_power_240mhz(void)
 static void
 setup_ahb_divider(void)
 {
-    uint32_t clkunlock = SYSCON->CLKUNLOCK;
-
     /*
      * AHBCLKDIV is special. Unlike most MCXA clock dividers it does
      * not implement RESET/HALT bits.
      *
      * Divide-by-1 is encoded as zero.
      */
+    if ((SYSCON->AHBCLKDIV & SYSCON_AHBCLKDIV_DIV_MASK) == 0U)
+        return;
+
+    uint32_t clkunlock = SYSCON->CLKUNLOCK;
+
     SYSCON->CLKUNLOCK =
         clkunlock & ~SYSCON_CLKUNLOCK_UNLOCK_MASK;
 
@@ -167,7 +170,6 @@ setup_ahb_divider(void)
 
     SYSCON->CLKUNLOCK = clkunlock;
 }
-
 
 static void
 setup_fro12m(void)
