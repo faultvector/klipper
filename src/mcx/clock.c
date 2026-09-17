@@ -18,6 +18,8 @@
 #define MCXA366_SRAM_VOLTAGE_1V2       3U
 #define MCXA366_FLASH_WAIT_STATES_240M  4U
 
+#define MCXA366_INVALID_FIRC_TRIM  0xFFFFFFFFU
+
 
 static void
 set_main_clock(uint32_t source)
@@ -193,9 +195,13 @@ setup_fro240m(void)
     */
     uint32_t trim_value =
         *(volatile uint32_t *)MCXA366_FIRC_240M_TRIM_ADDR;
+
+    if (trim_value == MCXA366_INVALID_FIRC_TRIM)
+        for (;;)
+            ;
+
     uint32_t current_source =
         (SCG0->CSR & SCG_CSR_SCS_MASK) >> SCG_CSR_SCS_SHIFT;
-
     /*
      * If the CPU is currently running from FRO_HF, move it to
      * FRO12M before modifying FRO_HF.
