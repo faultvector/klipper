@@ -199,14 +199,19 @@ setup_fro240m(void)
      * Load the factory 240 MHz FRO_HF trim from IFR1.
      */
     if (SCG0->FIRCTRIM != trim_value) {
+        uint32_t trim_lock =
+            SCG0->TRIM_LOCK & SCG_TRIM_LOCK_IFR_DISABLE_MASK;
+    
         SCG0->TRIM_LOCK =
-            SCG_TRIM_LOCK_TRIM_LOCK_KEY(FIRC_TRIM_KEY)
+            trim_lock
+            | SCG_TRIM_LOCK_TRIM_LOCK_KEY(FIRC_TRIM_KEY)
             | SCG_TRIM_LOCK_TRIM_UNLOCK(1U);
-        
+    
         SCG0->FIRCTRIM = trim_value;
-        
+    
         SCG0->TRIM_LOCK =
-            SCG_TRIM_LOCK_TRIM_LOCK_KEY(FIRC_TRIM_KEY)
+            trim_lock
+            | SCG_TRIM_LOCK_TRIM_LOCK_KEY(FIRC_TRIM_KEY)
             | SCG_TRIM_LOCK_TRIM_UNLOCK(0U);
     }
 
