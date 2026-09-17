@@ -87,14 +87,18 @@ setup_power_240mhz(void)
     while (SPC0->SC & SPC_SC_BUSY_MASK)
         ;
 
-    SPC0->ACTIVE_CFG =
-        (SPC0->ACTIVE_CFG
-        & ~SPC_ACTIVE_CFG_CORELDO_VDD_DS_MASK)
-        | SPC_ACTIVE_CFG_CORELDO_VDD_DS(
-            MCXA366_CORELDO_DRIVE_NORMAL);
+    if ((SPC0->ACTIVE_CFG & SPC_ACTIVE_CFG_CORELDO_VDD_DS_MASK)
+        != SPC_ACTIVE_CFG_CORELDO_VDD_DS(
+            MCXA366_CORELDO_DRIVE_NORMAL)) {
+        SPC0->ACTIVE_CFG =
+            (SPC0->ACTIVE_CFG
+            & ~SPC_ACTIVE_CFG_CORELDO_VDD_DS_MASK)
+            | SPC_ACTIVE_CFG_CORELDO_VDD_DS(
+                MCXA366_CORELDO_DRIVE_NORMAL);
     
-    while (SPC0->SC & SPC_SC_BUSY_MASK)
-        ;
+        while (SPC0->SC & SPC_SC_BUSY_MASK)
+            ;
+    }
 
     if ((SPC0->ACTIVE_CFG & SPC_ACTIVE_CFG_CORELDO_VDD_LVL_MASK)
         != SPC_ACTIVE_CFG_CORELDO_VDD_LVL(
