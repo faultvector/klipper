@@ -90,26 +90,21 @@ setup_power_240mhz(void)
     SPC0->ACTIVE_CFG =
         (SPC0->ACTIVE_CFG
          & ~SPC_ACTIVE_CFG_CORELDO_VDD_DS_MASK)
-        | SPC_ACTIVE_CFG_CORELDO_VDD_DS(MCXA366_CORELDO_DRIVE_NORMAL);
+        | SPC_ACTIVE_CFG_CORELDO_VDD_DS(
+            MCXA366_CORELDO_DRIVE_NORMAL);
 
     if ((SPC0->ACTIVE_CFG & SPC_ACTIVE_CFG_CORELDO_VDD_LVL_MASK)
-        != SPC_ACTIVE_CFG_CORELDO_VDD_LVL(MCXA366_CORELDO_VOLTAGE_1V2)) {
+        != SPC_ACTIVE_CFG_CORELDO_VDD_LVL(
+            MCXA366_CORELDO_VOLTAGE_1V2)) {
         SPC0->ACTIVE_CFG =
             (SPC0->ACTIVE_CFG
              & ~SPC_ACTIVE_CFG_CORELDO_VDD_LVL_MASK)
-            | SPC_ACTIVE_CFG_CORELDO_VDD_LVL(MCXA366_CORELDO_VOLTAGE_1V2);
+            | SPC_ACTIVE_CFG_CORELDO_VDD_LVL(
+                MCXA366_CORELDO_VOLTAGE_1V2);
 
         while (SPC0->SC & SPC_SC_BUSY_MASK)
             ;
     }
-
-    /*
-     * Keep the Core LDO in normal drive strength.
-     */
-    SPC0->ACTIVE_CFG =
-        (SPC0->ACTIVE_CFG
-         & ~SPC_ACTIVE_CFG_CORELDO_VDD_DS_MASK)
-        | SPC_ACTIVE_CFG_CORELDO_VDD_DS(MCXA366_CORELDO_DRIVE_NORMAL);
 
     /*
      * Four additional flash wait states are required above 90 MHz
@@ -123,7 +118,9 @@ setup_power_240mhz(void)
      * Configure SRAM timing for 1.2 V operation and request that
      * the hardware apply the new voltage setting.
      */
-    SPC0->SRAMCTL = SPC_SRAMCTL_VSM(MCXA366_SRAM_VOLTAGE_1V2);
+    SPC0->SRAMCTL =
+        SPC_SRAMCTL_VSM(MCXA366_SRAM_VOLTAGE_1V2);
+
     SPC0->SRAMCTL |= SPC_SRAMCTL_REQ_MASK;
 
     while (!(SPC0->SRAMCTL & SPC_SRAMCTL_ACK_MASK))
