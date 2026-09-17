@@ -210,14 +210,10 @@ setup_fro240m(void)
     /*
      * Enable both FRO_HF peripheral outputs and the FIRC itself.
      */
-    SCG0->FIRCCSR &= ~SCG_FIRCCSR_LK_MASK;
-
     SCG0->FIRCCSR |=
         SCG_FIRCCSR_FIRC_SCLK_PERIPH_EN_MASK
         | SCG_FIRCCSR_FIRC_FCLK_PERIPH_EN_MASK
         | SCG_FIRCCSR_FIRCEN_MASK;
-
-    SCG0->FIRCCSR |= SCG_FIRCCSR_LK_MASK;
 
     while (!(SCG0->FIRCCSR & SCG_FIRCCSR_FIRCACC_MASK))
         ;
