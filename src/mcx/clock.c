@@ -9,6 +9,8 @@
 
 #define IFR1_ADDR       0x01100000U
 #define IFR1_240M_TRIM  (*(volatile uint32_t *)(IFR1_ADDR + 0x874U))
+#define MCX_MAIN_CLOCK_SIRC  2U
+#define MCX_MAIN_CLOCK_FIRC  3U
 
 
 static void
@@ -188,8 +190,8 @@ setup_fro240m(void)
      *     2 = FRO12M
      *     3 = FRO_HF
      */
-    if (current_source == 3U)
-        set_main_clock(2U);
+    if (current_source == MCX_MAIN_CLOCK_FIRC)
+        set_main_clock(MCX_MAIN_CLOCK_SIRC);
 
     /*
      * Load the factory 240 MHz FRO_HF trim from IFR1.
@@ -270,5 +272,5 @@ mcx_clock_init(void)
     /*
      * MAIN_CLK selector 3 = FRO_HF.
      */
-    set_main_clock(3U);
+    set_main_clock(MCX_MAIN_CLOCK_FIRC);
 }
