@@ -39,6 +39,17 @@ set_clock_divider(volatile uint32_t *reg, uint32_t value,
                   uint32_t div_mask, uint32_t div_shift,
                   uint32_t reset_mask, uint32_t halt_mask)
 {
+    uint32_t current = *reg;
+
+    if (value) {
+        uint32_t div =
+            ((value - 1U) << div_shift) & div_mask;
+
+        if (!(current & halt_mask)
+            && (current & div_mask) == div)
+            return;
+    }
+
     uint32_t clkunlock = SYSCON->CLKUNLOCK;
 
     SYSCON->CLKUNLOCK =
@@ -71,7 +82,6 @@ set_clock_divider(volatile uint32_t *reg, uint32_t value,
 
     SYSCON->CLKUNLOCK = clkunlock;
 }
-
 
 static void
 setup_power_240mhz(void)
