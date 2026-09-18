@@ -234,6 +234,27 @@ i2c_check_error(LPI2C_Type *i2c, uint32_t status)
     return I2C_BUS_TIMEOUT;
 }
 
+static void
+i2c_recover_timeout(LPI2C_Type *i2c)
+{
+    /*
+     * Discard any stale transmit commands or unread receive data.
+     */
+    i2c->MCR |=
+        LPI2C_MCR_RRF_MASK
+        | LPI2C_MCR_RTF_MASK;
+
+    /*
+     * If this controller still owns the bus and no STOP has been
+     * generated, request one before returning to the caller.
+     */
+    uint32_t status = i2c->MSR;
+
+    if ((status & (LPI2C_MSR_SDF_MASK | LPI2C_MSR_MBF_MASK))
+        == LPI2C_MSR_MBF_MASK)
+        i2c->MTDR = LPI2C_MTDR_CMD(I2C_CMD_STOP);
+}
+
 static int
 i2c_wait_tx_ready(LPI2C_Type *i2c, uint32_t timeout)
 {
@@ -247,8 +268,10 @@ i2c_wait_tx_ready(LPI2C_Type *i2c, uint32_t timeout)
         if (status & LPI2C_MSR_TDF_MASK)
             return I2C_BUS_SUCCESS;
 
-        if (!timer_is_before(timer_read_time(), timeout))
+        if (!timer_is_before(timer_read_time(), timeout)) {
+            i2c_recover_timeout(i2c);
             return I2C_BUS_TIMEOUT;
+        }
     }
 }
 
@@ -269,8 +292,10 @@ i2c_read_byte(LPI2C_Type *i2c, uint8_t *data, uint32_t timeout)
             return I2C_BUS_SUCCESS;
         }
 
-        if (!timer_is_before(timer_read_time(), timeout))
+        if (!timer_is_before(timer_read_time(), timeout)) {
+            i2c_recover_timeout(i2c);
             return I2C_BUS_TIMEOUT;
+        }
     }
 }
 
@@ -289,8 +314,10 @@ i2c_wait_stop(LPI2C_Type *i2c, uint32_t timeout)
             return I2C_BUS_SUCCESS;
         }
 
-        if (!timer_is_before(timer_read_time(), timeout))
+        if (!timer_is_before(timer_read_time(), timeout)) {
+            i2c_recover_timeout(i2c);
             return I2C_BUS_TIMEOUT;
+        }
     }
 }
 
