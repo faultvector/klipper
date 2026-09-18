@@ -19,6 +19,7 @@
 
 #define I2C_PIN_PCR \
     (PORT_PCR_SRE(1) \
+     | PORT_PCR_ODE(1) \
      | PORT_PCR_MUX(2) \
      | PORT_PCR_IBE(1))
 
@@ -36,6 +37,46 @@
 
 DECL_ENUMERATION("i2c_bus", "i2c3", 0);
 DECL_CONSTANT_STR("BUS_PINS_i2c3", "P3_27,P3_28");
+
+volatile uint32_t mcx_i2c_dbg_mcr;
+volatile uint32_t mcx_i2c_dbg_msr;
+volatile uint32_t mcx_i2c_dbg_mcfgr1;
+volatile uint32_t mcx_i2c_dbg_mccr0;
+volatile uint32_t mcx_i2c_dbg_mfsr;
+volatile uint32_t mcx_i2c_dbg_pcr27;
+volatile uint32_t mcx_i2c_dbg_pcr28;
+
+volatile uint32_t mcx_i2c_dbg_clksel;
+volatile uint32_t mcx_i2c_dbg_clkdiv;
+volatile uint32_t mcx_i2c_dbg_verid;
+volatile uint32_t mcx_i2c_dbg_param;
+
+volatile uint32_t mcx_i2c_dbg_sirccsr;
+volatile uint32_t mcx_i2c_dbg_frolfdiv;
+
+volatile uint32_t mcx_i2c_dbg_after_start_msr;
+volatile uint32_t mcx_i2c_dbg_after_start_mfsr;
+volatile uint32_t mcx_i2c_dbg_after_start_mcr;
+
+static void
+i2c_capture_debug_state(void)
+{
+    mcx_i2c_dbg_mcr = I2C->MCR;
+    mcx_i2c_dbg_msr = I2C->MSR;
+    mcx_i2c_dbg_mcfgr1 = I2C->MCFGR1;
+    mcx_i2c_dbg_mccr0 = I2C->MCCR0;
+    mcx_i2c_dbg_mfsr = I2C->MFSR;
+    mcx_i2c_dbg_pcr27 = PORT3->PCR[27];
+    mcx_i2c_dbg_pcr28 = PORT3->PCR[28];
+
+    mcx_i2c_dbg_clksel = MRCC0->MRCC_LPI2C3_CLKSEL;
+    mcx_i2c_dbg_clkdiv = MRCC0->MRCC_LPI2C3_CLKDIV;
+    mcx_i2c_dbg_verid = I2C->VERID;
+    mcx_i2c_dbg_param = I2C->PARAM;
+
+    mcx_i2c_dbg_sirccsr = SCG0->SIRCCSR;
+    mcx_i2c_dbg_frolfdiv = SYSCON->FROLFDIV;
+}
 
 
 static void
@@ -228,6 +269,8 @@ i2c_check_error(LPI2C_Type *i2c, uint32_t status)
         LPI2C_MCR_RRF_MASK
         | LPI2C_MCR_RTF_MASK;
 
+    i2c_capture_debug_state();
+
     if (errors & LPI2C_MSR_NDF_MASK)
         return I2C_BUS_NACK;
 
@@ -348,6 +391,10 @@ i2c_write(struct i2c_config config, uint8_t write_len, uint8_t *write)
     i2c->MTDR =
         LPI2C_MTDR_CMD(I2C_CMD_START)
         | LPI2C_MTDR_DATA((uint32_t)config.addr << 1);
+
+    mcx_i2c_dbg_after_start_msr = i2c->MSR;
+    mcx_i2c_dbg_after_start_mfsr = i2c->MFSR;
+    mcx_i2c_dbg_after_start_mcr = i2c->MCR;
 
     /*
      * Wait until the transmit FIFO can accept another command.
