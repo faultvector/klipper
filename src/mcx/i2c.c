@@ -13,7 +13,7 @@
 
 #define I2C LPI2C3
 
-// TODO: These need to be set by users
+// FRDM-MCXA366 LPI2C3 pin pair
 #define I2C_SCL_PIN 27U
 #define I2C_SDA_PIN 28U
 
@@ -72,6 +72,40 @@ setup_i2c_clock(void)
     SYSCON->CLKUNLOCK = clkunlock;
 }
 
+static void
+setup_i2c_controller(void)
+{
+    /*
+     * Start from a known peripheral state.
+     */
+    I2C->MCR = LPI2C_MCR_RST_MASK;
+    I2C->MCR = 0U;
+
+    /*
+     * Default master configuration:
+     *
+     *     2-pin open-drain mode
+     *     ACK checking enabled
+     *     prescaler = /1
+     *
+     * PINCFG=0 selects 2-pin open-drain operation.
+     */
+    I2C->MCFGR1 =
+        LPI2C_MCFGR1_PINCFG(0U)
+        | LPI2C_MCFGR1_PRESCALE(0U);
+
+    /*
+     * No glitch filtering or bus/pin timeout yet.
+     */
+    I2C->MCFGR2 = 0U;
+    I2C->MCFGR3 = 0U;
+
+    /*
+     * Default FIFO watermarks.
+     */
+    I2C->MFCR = 0U;
+}
+
 
 static void
 setup_i2c_pins(void)
@@ -126,6 +160,7 @@ i2c_setup(uint32_t bus, uint32_t rate, uint8_t addr)
 
     setup_i2c_clock();
     setup_i2c_pins();
+    setup_i2c_controller();
 
     return (struct i2c_config) {
         .i2c = I2C,
