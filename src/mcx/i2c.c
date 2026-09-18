@@ -9,7 +9,7 @@
 #include "i2ccmds.h"  // I2C_BUS_*
 #include "internal.h" // LPI2C3, MRCC0, PORT3
 #include "sched.h"    // shutdown
-
+#include "board/misc.h" // timer_is_before
 
 #define I2C LPI2C3
 
@@ -26,6 +26,10 @@
 #define I2C_100K_CLKLO      61U
 #define I2C_100K_SETHOLD    59U
 #define I2C_100K_DATAVD     29U
+
+#define I2C_CMD_TX_DATA 0U
+#define I2C_CMD_STOP    2U
+#define I2C_CMD_START   4U
 
 
 DECL_ENUMERATION("i2c_bus", "i2c3", 0);
@@ -195,14 +199,124 @@ i2c_setup(uint32_t bus, uint32_t rate, uint8_t addr)
     };
 }
 
+static int
+i2c_wait_tx_ready(LPI2C_Type *i2c, uint32_t timeout)
+{
+    for (;;) {
+        uint32_t status = i2c->MSR;
+
+        if (status & LPI2C_MSR_NDF_MASK) {
+            i2c->MSR = LPI2C_MSR_NDF_MASK;
+            return I2C_BUS_NACK;
+        }
+
+        if (status & (LPI2C_MSR_ALF_MASK
+                      | LPI2C_MSR_FEF_MASK
+                      | LPI2C_MSR_PLTF_MASK)) {
+            i2c->MSR =
+                status & (LPI2C_MSR_ALF_MASK
+                          | LPI2C_MSR_FEF_MASK
+                          | LPI2C_MSR_PLTF_MASK);
+            return I2C_BUS_TIMEOUT;
+        }
+
+        if (status & LPI2C_MSR_TDF_MASK)
+            return I2C_BUS_SUCCESS;
+
+        if (!timer_is_before(timer_read_time(), timeout))
+            return I2C_BUS_TIMEOUT;
+    }
+}
+
+
+static int
+i2c_wait_stop(LPI2C_Type *i2c, uint32_t timeout)
+{
+    for (;;) {
+        uint32_t status = i2c->MSR;
+
+        if (status & LPI2C_MSR_NDF_MASK) {
+            i2c->MSR = LPI2C_MSR_NDF_MASK;
+            return I2C_BUS_NACK;
+        }
+
+        if (status & LPI2C_MSR_SDF_MASK) {
+            i2c->MSR = LPI2C_MSR_SDF_MASK;
+            return I2C_BUS_SUCCESS;
+        }
+
+        if (status & (LPI2C_MSR_ALF_MASK
+                      | LPI2C_MSR_FEF_MASK
+                      | LPI2C_MSR_PLTF_MASK)) {
+            i2c->MSR =
+                status & (LPI2C_MSR_ALF_MASK
+                          | LPI2C_MSR_FEF_MASK
+                          | LPI2C_MSR_PLTF_MASK);
+            return I2C_BUS_TIMEOUT;
+        }
+
+        if (!timer_is_before(timer_read_time(), timeout))
+            return I2C_BUS_TIMEOUT;
+    }
+}
 
 int
 i2c_write(struct i2c_config config, uint8_t write_len, uint8_t *write)
 {
+    LPI2C_Type *i2c = config.i2c;
+    uint32_t timeout =
+        timer_read_time() + timer_from_us(5000);
+
     /*
-     * Transaction support comes next.
+     * Clear status left over from a previous transaction.
      */
-    return I2C_BUS_TIMEOUT;
+    i2c->MSR =
+        LPI2C_MSR_SDF_MASK
+        | LPI2C_MSR_NDF_MASK
+        | LPI2C_MSR_ALF_MASK
+        | LPI2C_MSR_FEF_MASK
+        | LPI2C_MSR_PLTF_MASK;
+
+    /*
+     * Generate START and transmit the 7-bit address with R/W = 0.
+     */
+    int ret = i2c_wait_tx_ready(i2c, timeout);
+    if (ret != I2C_BUS_SUCCESS)
+        return ret;
+
+    i2c->MTDR =
+        LPI2C_MTDR_CMD(I2C_CMD_START)
+        | LPI2C_MTDR_DATA((uint32_t)config.addr << 1);
+
+    /*
+     * Wait for the address phase to complete. A NACK here is
+     * specifically a START/address NACK.
+     */
+    ret = i2c_wait_tx_ready(i2c, timeout);
+    if (ret == I2C_BUS_NACK)
+        return I2C_BUS_START_NACK;
+    if (ret != I2C_BUS_SUCCESS)
+        return ret;
+
+    /*
+     * Queue the payload bytes.
+     */
+    while (write_len--) {
+        i2c->MTDR =
+            LPI2C_MTDR_CMD(I2C_CMD_TX_DATA)
+            | LPI2C_MTDR_DATA(*write++);
+
+        ret = i2c_wait_tx_ready(i2c, timeout);
+        if (ret != I2C_BUS_SUCCESS)
+            return ret;
+    }
+
+    /*
+     * Generate STOP and wait until it has actually appeared on the bus.
+     */
+    i2c->MTDR = LPI2C_MTDR_CMD(I2C_CMD_STOP);
+
+    return i2c_wait_stop(i2c, timeout);
 }
 
 
