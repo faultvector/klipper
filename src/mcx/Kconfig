@@ -71,18 +71,4 @@ config STACK_SIZE
     int
     default 2048
 
-# These sensor drivers require an I2C configuration type even when used
-# over SPI. I2C support has not been implemented for MCXA366 yet.
-config WANT_LIS2DW
-    default n
-
-config WANT_BMI160
-    default n
-
-config WANT_MPU9250
-    default n
-
-config WANT_ICM20948
-    default n
-
 endif
