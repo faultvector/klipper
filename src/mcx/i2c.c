@@ -323,12 +323,12 @@ i2c_write(struct i2c_config config, uint8_t write_len, uint8_t *write)
         | LPI2C_MTDR_DATA((uint32_t)config.addr << 1);
 
     /*
-     * Wait for the address phase to complete. A NACK here is
-     * specifically a START/address NACK.
+     * Wait until the transmit FIFO can accept another command.
+     *
+     * TDF indicates FIFO availability; it does not guarantee that
+     * the address phase has completed on the bus.
      */
     ret = i2c_wait_tx_ready(i2c, timeout);
-    if (ret == I2C_BUS_NACK)
-        return I2C_BUS_START_NACK;
     if (ret != I2C_BUS_SUCCESS)
         return ret;
 
@@ -352,7 +352,6 @@ i2c_write(struct i2c_config config, uint8_t write_len, uint8_t *write)
 
     return i2c_wait_stop(i2c, timeout);
 }
-
 
 int
 i2c_read(struct i2c_config config,
@@ -390,9 +389,13 @@ i2c_read(struct i2c_config config,
             LPI2C_MTDR_CMD(I2C_CMD_START)
             | LPI2C_MTDR_DATA((uint32_t)config.addr << 1);
 
+        /*
+         * Wait until the transmit FIFO can accept another command.
+         *
+         * TDF indicates FIFO availability; it does not guarantee that
+         * the address phase has completed on the bus.
+         */
         ret = i2c_wait_tx_ready(i2c, timeout);
-        if (ret == I2C_BUS_NACK)
-            return I2C_BUS_START_NACK;
         if (ret != I2C_BUS_SUCCESS)
             return ret;
 
@@ -421,9 +424,13 @@ i2c_read(struct i2c_config config,
         LPI2C_MTDR_CMD(I2C_CMD_START)
         | LPI2C_MTDR_DATA(((uint32_t)config.addr << 1) | 1U);
 
+    /*
+     * Wait until the transmit FIFO can accept the receive command.
+     *
+     * TDF is not an address-ACK indication, so any NACK observed here
+     * is reported generically.
+     */
     ret = i2c_wait_tx_ready(i2c, timeout);
-    if (ret == I2C_BUS_NACK)
-        return I2C_BUS_START_READ_NACK;
     if (ret != I2C_BUS_SUCCESS)
         return ret;
 
