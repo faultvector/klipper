@@ -31,6 +31,8 @@
 #define I2C_CMD_STOP    2U
 #define I2C_CMD_START   4U
 
+#define I2C_CMD_RX_DATA 1U
+
 
 DECL_ENUMERATION("i2c_bus", "i2c3", 0);
 DECL_CONSTANT_STR("BUS_PINS_i2c3", "P3_27,P3_28");
@@ -228,6 +230,39 @@ i2c_wait_tx_ready(LPI2C_Type *i2c, uint32_t timeout)
     }
 }
 
+static int
+i2c_read_byte(LPI2C_Type *i2c, uint8_t *data, uint32_t timeout)
+{
+    for (;;) {
+        uint32_t status = i2c->MSR;
+
+        if (status & LPI2C_MSR_NDF_MASK) {
+            i2c->MSR = LPI2C_MSR_NDF_MASK;
+            return I2C_BUS_NACK;
+        }
+
+        if (status & (LPI2C_MSR_ALF_MASK
+                      | LPI2C_MSR_FEF_MASK
+                      | LPI2C_MSR_PLTF_MASK)) {
+            i2c->MSR =
+                status & (LPI2C_MSR_ALF_MASK
+                          | LPI2C_MSR_FEF_MASK
+                          | LPI2C_MSR_PLTF_MASK);
+            return I2C_BUS_TIMEOUT;
+        }
+
+        uint32_t value = i2c->MRDR;
+
+        if (!(value & LPI2C_MRDR_RXEMPTY_MASK)) {
+            *data = value & LPI2C_MRDR_DATA_MASK;
+            return I2C_BUS_SUCCESS;
+        }
+
+        if (!timer_is_before(timer_read_time(), timeout))
+            return I2C_BUS_TIMEOUT;
+    }
+}
+
 
 static int
 i2c_wait_stop(LPI2C_Type *i2c, uint32_t timeout)
@@ -325,8 +360,96 @@ i2c_read(struct i2c_config config,
          uint8_t reg_len, uint8_t *reg,
          uint8_t read_len, uint8_t *read)
 {
+    LPI2C_Type *i2c = config.i2c;
+    uint32_t timeout =
+        timer_read_time() + timer_from_us(5000);
+
+    if (!read_len)
+        return I2C_BUS_SUCCESS;
+
     /*
-     * Transaction support comes next.
+     * Clear status left over from a previous transaction.
      */
-    return I2C_BUS_TIMEOUT;
+    i2c->MSR =
+        LPI2C_MSR_SDF_MASK
+        | LPI2C_MSR_NDF_MASK
+        | LPI2C_MSR_ALF_MASK
+        | LPI2C_MSR_FEF_MASK
+        | LPI2C_MSR_PLTF_MASK;
+
+    int ret;
+
+    if (reg_len) {
+        /*
+         * START + slave address with R/W = 0.
+         */
+        ret = i2c_wait_tx_ready(i2c, timeout);
+        if (ret != I2C_BUS_SUCCESS)
+            return ret;
+
+        i2c->MTDR =
+            LPI2C_MTDR_CMD(I2C_CMD_START)
+            | LPI2C_MTDR_DATA((uint32_t)config.addr << 1);
+
+        ret = i2c_wait_tx_ready(i2c, timeout);
+        if (ret == I2C_BUS_NACK)
+            return I2C_BUS_START_NACK;
+        if (ret != I2C_BUS_SUCCESS)
+            return ret;
+
+        /*
+         * Send the register/subaddress bytes without issuing STOP.
+         */
+        while (reg_len--) {
+            i2c->MTDR =
+                LPI2C_MTDR_CMD(I2C_CMD_TX_DATA)
+                | LPI2C_MTDR_DATA(*reg++);
+
+            ret = i2c_wait_tx_ready(i2c, timeout);
+            if (ret != I2C_BUS_SUCCESS)
+                return ret;
+        }
+    }
+
+    /*
+     * Generate START or repeated START with R/W = 1.
+     */
+    ret = i2c_wait_tx_ready(i2c, timeout);
+    if (ret != I2C_BUS_SUCCESS)
+        return ret;
+
+    i2c->MTDR =
+        LPI2C_MTDR_CMD(I2C_CMD_START)
+        | LPI2C_MTDR_DATA(((uint32_t)config.addr << 1) | 1U);
+
+    ret = i2c_wait_tx_ready(i2c, timeout);
+    if (ret == I2C_BUS_NACK)
+        return I2C_BUS_START_READ_NACK;
+    if (ret != I2C_BUS_SUCCESS)
+        return ret;
+
+    /*
+     * Request read_len bytes. LPI2C encodes this as N - 1.
+     */
+    i2c->MTDR =
+        LPI2C_MTDR_CMD(I2C_CMD_RX_DATA)
+        | LPI2C_MTDR_DATA((uint32_t)read_len - 1U);
+
+    while (read_len--) {
+        ret = i2c_read_byte(i2c, read, timeout);
+        if (ret != I2C_BUS_SUCCESS)
+            return ret;
+        read++;
+    }
+
+    /*
+     * End the transaction.
+     */
+    ret = i2c_wait_tx_ready(i2c, timeout);
+    if (ret != I2C_BUS_SUCCESS)
+        return ret;
+
+    i2c->MTDR = LPI2C_MTDR_CMD(I2C_CMD_STOP);
+
+    return i2c_wait_stop(i2c, timeout);
 }
