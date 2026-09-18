@@ -22,6 +22,11 @@
      | PORT_PCR_MUX(2) \
      | PORT_PCR_IBE(1))
 
+#define I2C_100K_CLKHI      55U
+#define I2C_100K_CLKLO      61U
+#define I2C_100K_SETHOLD    59U
+#define I2C_100K_DATAVD     29U
+
 
 DECL_ENUMERATION("i2c_bus", "i2c3", 0);
 DECL_CONSTANT_STR("BUS_PINS_i2c3", "P3_27,P3_28");
@@ -104,6 +109,28 @@ setup_i2c_controller(void)
      * Default FIFO watermarks.
      */
     I2C->MFCR = 0U;
+
+    /*
+     * Standard-mode timing for a 12 MHz LPI2C functional clock.
+     *
+     * These values follow NXP's LPI2C_MasterSetBaudRate()
+     * calculation for:
+     *
+     *     source clock = 12 MHz
+     *     bus rate     = 100 kHz
+     *     PRESCALE     = /1
+     *     FILTSCL      = 0
+     */
+    I2C->MCCR0 =
+        LPI2C_MCCR0_CLKHI(I2C_100K_CLKHI)
+        | LPI2C_MCCR0_CLKLO(I2C_100K_CLKLO)
+        | LPI2C_MCCR0_SETHOLD(I2C_100K_SETHOLD)
+        | LPI2C_MCCR0_DATAVD(I2C_100K_DATAVD);
+
+    /*
+     * Timing is configured. Enable master operation.
+     */
+    I2C->MCR = LPI2C_MCR_MEN_MASK;
 }
 
 
