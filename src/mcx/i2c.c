@@ -202,25 +202,47 @@ i2c_setup(uint32_t bus, uint32_t rate, uint8_t addr)
 }
 
 static int
+i2c_check_error(LPI2C_Type *i2c, uint32_t status)
+{
+    uint32_t errors =
+        status & (LPI2C_MSR_NDF_MASK
+                  | LPI2C_MSR_ALF_MASK
+                  | LPI2C_MSR_FEF_MASK
+                  | LPI2C_MSR_PLTF_MASK);
+
+    if (!errors)
+        return I2C_BUS_SUCCESS;
+
+    /*
+     * LPI2C status error flags are write-one-to-clear.
+     */
+    i2c->MSR = errors;
+
+    /*
+     * An error may leave stale commands or data in the FIFOs.
+     * Reset both before allowing another transaction.
+     *
+     * RRF and RTF clear automatically.
+     */
+    i2c->MCR |=
+        LPI2C_MCR_RRF_MASK
+        | LPI2C_MCR_RTF_MASK;
+
+    if (errors & LPI2C_MSR_NDF_MASK)
+        return I2C_BUS_NACK;
+
+    return I2C_BUS_TIMEOUT;
+}
+
+static int
 i2c_wait_tx_ready(LPI2C_Type *i2c, uint32_t timeout)
 {
     for (;;) {
         uint32_t status = i2c->MSR;
 
-        if (status & LPI2C_MSR_NDF_MASK) {
-            i2c->MSR = LPI2C_MSR_NDF_MASK;
-            return I2C_BUS_NACK;
-        }
-
-        if (status & (LPI2C_MSR_ALF_MASK
-                      | LPI2C_MSR_FEF_MASK
-                      | LPI2C_MSR_PLTF_MASK)) {
-            i2c->MSR =
-                status & (LPI2C_MSR_ALF_MASK
-                          | LPI2C_MSR_FEF_MASK
-                          | LPI2C_MSR_PLTF_MASK);
-            return I2C_BUS_TIMEOUT;
-        }
+        int ret = i2c_check_error(i2c, status);
+        if (ret != I2C_BUS_SUCCESS)
+            return ret;
 
         if (status & LPI2C_MSR_TDF_MASK)
             return I2C_BUS_SUCCESS;
@@ -236,20 +258,9 @@ i2c_read_byte(LPI2C_Type *i2c, uint8_t *data, uint32_t timeout)
     for (;;) {
         uint32_t status = i2c->MSR;
 
-        if (status & LPI2C_MSR_NDF_MASK) {
-            i2c->MSR = LPI2C_MSR_NDF_MASK;
-            return I2C_BUS_NACK;
-        }
-
-        if (status & (LPI2C_MSR_ALF_MASK
-                      | LPI2C_MSR_FEF_MASK
-                      | LPI2C_MSR_PLTF_MASK)) {
-            i2c->MSR =
-                status & (LPI2C_MSR_ALF_MASK
-                          | LPI2C_MSR_FEF_MASK
-                          | LPI2C_MSR_PLTF_MASK);
-            return I2C_BUS_TIMEOUT;
-        }
+        int ret = i2c_check_error(i2c, status);
+        if (ret != I2C_BUS_SUCCESS)
+            return ret;
 
         uint32_t value = i2c->MRDR;
 
@@ -263,31 +274,19 @@ i2c_read_byte(LPI2C_Type *i2c, uint8_t *data, uint32_t timeout)
     }
 }
 
-
 static int
 i2c_wait_stop(LPI2C_Type *i2c, uint32_t timeout)
 {
     for (;;) {
         uint32_t status = i2c->MSR;
 
-        if (status & LPI2C_MSR_NDF_MASK) {
-            i2c->MSR = LPI2C_MSR_NDF_MASK;
-            return I2C_BUS_NACK;
-        }
+        int ret = i2c_check_error(i2c, status);
+        if (ret != I2C_BUS_SUCCESS)
+            return ret;
 
         if (status & LPI2C_MSR_SDF_MASK) {
             i2c->MSR = LPI2C_MSR_SDF_MASK;
             return I2C_BUS_SUCCESS;
-        }
-
-        if (status & (LPI2C_MSR_ALF_MASK
-                      | LPI2C_MSR_FEF_MASK
-                      | LPI2C_MSR_PLTF_MASK)) {
-            i2c->MSR =
-                status & (LPI2C_MSR_ALF_MASK
-                          | LPI2C_MSR_FEF_MASK
-                          | LPI2C_MSR_PLTF_MASK);
-            return I2C_BUS_TIMEOUT;
         }
 
         if (!timer_is_before(timer_read_time(), timeout))
