@@ -19,7 +19,6 @@
 
 #define I2C_PIN_PCR \
     (PORT_PCR_SRE(1) \
-     | PORT_PCR_ODE(1) \
      | PORT_PCR_MUX(2) \
      | PORT_PCR_IBE(1))
 
@@ -58,6 +57,25 @@ volatile uint32_t mcx_i2c_dbg_after_start_msr;
 volatile uint32_t mcx_i2c_dbg_after_start_mfsr;
 volatile uint32_t mcx_i2c_dbg_after_start_mcr;
 
+volatile uint32_t mcx_i2c_dbg_error_status;
+volatile uint32_t mcx_i2c_dbg_errors;
+
+volatile uint32_t mcx_i2c_dbg_read_start1_msr;
+volatile uint32_t mcx_i2c_dbg_read_start1_mfsr;
+volatile uint32_t mcx_i2c_dbg_read_start1_mcr;
+
+volatile uint32_t mcx_i2c_dbg_read_start2_msr;
+volatile uint32_t mcx_i2c_dbg_read_start2_mfsr;
+volatile uint32_t mcx_i2c_dbg_read_start2_mcr;
+
+volatile uint32_t mcx_i2c_dbg_mcfgr2;
+volatile uint32_t mcx_i2c_dbg_mcfgr3;
+volatile uint32_t mcx_i2c_dbg_gpio3_pin;
+
+volatile uint32_t mcx_i2c_dbg_after_tdf_msr;
+volatile uint32_t mcx_i2c_dbg_after_tdf_mfsr;
+volatile uint32_t mcx_i2c_dbg_after_tdf_mcr;
+
 static void
 i2c_capture_debug_state(void)
 {
@@ -76,6 +94,10 @@ i2c_capture_debug_state(void)
 
     mcx_i2c_dbg_sirccsr = SCG0->SIRCCSR;
     mcx_i2c_dbg_frolfdiv = SYSCON->FROLFDIV;
+
+    mcx_i2c_dbg_mcfgr2 = I2C->MCFGR2;
+    mcx_i2c_dbg_mcfgr3 = I2C->MCFGR3;
+    mcx_i2c_dbg_gpio3_pin = GPIO3->PDIR;
 }
 
 
@@ -255,20 +277,35 @@ i2c_check_error(LPI2C_Type *i2c, uint32_t status)
         return I2C_BUS_SUCCESS;
 
     /*
-     * LPI2C status error flags are write-one-to-clear.
+     * Capture the state that actually triggered the error.
      */
-    i2c->MSR = errors;
+    mcx_i2c_dbg_error_status = status;
+    mcx_i2c_dbg_errors = errors;
 
     /*
-     * An error may leave stale commands or data in the FIFOs.
-     * Reset both before allowing another transaction.
+     * Discard any commands/data still queued from the failed transfer.
      *
-     * RRF and RTF clear automatically.
+     * This MUST happen before queuing STOP, otherwise RTF can discard
+     * the STOP command itself.
      */
     i2c->MCR |=
         LPI2C_MCR_RRF_MASK
         | LPI2C_MCR_RTF_MASK;
 
+    /*
+     * If this controller still owns the bus, terminate the transaction.
+     */
+    if (status & LPI2C_MSR_MBF_MASK)
+        i2c->MTDR = LPI2C_MTDR_CMD(I2C_CMD_STOP);
+
+    /*
+     * Clear sticky error flags.
+     */
+    i2c->MSR = errors;
+
+    /*
+     * Capture state after initiating recovery.
+     */
     i2c_capture_debug_state();
 
     if (errors & LPI2C_MSR_NDF_MASK)
@@ -464,6 +501,13 @@ i2c_read(struct i2c_config config,
             | LPI2C_MTDR_DATA((uint32_t)config.addr << 1);
 
         /*
+         * Snapshot immediately after queuing the first START/address.
+         */
+        mcx_i2c_dbg_read_start1_msr = i2c->MSR;
+        mcx_i2c_dbg_read_start1_mfsr = i2c->MFSR;
+        mcx_i2c_dbg_read_start1_mcr = i2c->MCR;
+
+        /*
          * Wait until the transmit FIFO can accept another command.
          *
          * TDF indicates FIFO availability; it does not guarantee that
@@ -472,6 +516,14 @@ i2c_read(struct i2c_config config,
         ret = i2c_wait_tx_ready(i2c, timeout);
         if (ret != I2C_BUS_SUCCESS)
             return ret;
+
+        /*
+         * Snapshot after the START/address command has been consumed
+         * enough for TDF to assert again.
+         */
+        mcx_i2c_dbg_after_tdf_msr = i2c->MSR;
+        mcx_i2c_dbg_after_tdf_mfsr = i2c->MFSR;
+        mcx_i2c_dbg_after_tdf_mcr = i2c->MCR;
 
         /*
          * Send the register/subaddress bytes without issuing STOP.
@@ -497,6 +549,13 @@ i2c_read(struct i2c_config config,
     i2c->MTDR =
         LPI2C_MTDR_CMD(I2C_CMD_START)
         | LPI2C_MTDR_DATA(((uint32_t)config.addr << 1) | 1U);
+
+    /*
+     * Snapshot immediately after queuing the repeated START/address.
+     */
+    mcx_i2c_dbg_read_start2_msr = i2c->MSR;
+    mcx_i2c_dbg_read_start2_mfsr = i2c->MFSR;
+    mcx_i2c_dbg_read_start2_mcr = i2c->MCR;
 
     /*
      * Wait until the transmit FIFO can accept the receive command.
