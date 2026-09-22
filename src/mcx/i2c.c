@@ -27,6 +27,16 @@
 #define I2C_100K_SETHOLD    59U
 #define I2C_100K_DATAVD     29U
 
+#define I2C_400K_CLKHI      12U
+#define I2C_400K_CLKLO      14U
+#define I2C_400K_SETHOLD    14U
+#define I2C_400K_DATAVD      6U
+
+#define I2C_1M_CLKHI         3U
+#define I2C_1M_CLKLO         5U
+#define I2C_1M_SETHOLD       5U
+#define I2C_1M_DATAVD        2U
+
 #define I2C_CMD_TX_DATA 0U
 #define I2C_CMD_STOP    2U
 #define I2C_CMD_START   4U
@@ -75,6 +85,69 @@ volatile uint32_t mcx_i2c_dbg_gpio3_pin;
 volatile uint32_t mcx_i2c_dbg_after_tdf_msr;
 volatile uint32_t mcx_i2c_dbg_after_tdf_mfsr;
 volatile uint32_t mcx_i2c_dbg_after_tdf_mcr;
+
+
+volatile uint32_t mcx_i2c_dbg_tx_loops_max;
+volatile uint32_t mcx_i2c_dbg_rx_loops_max;
+volatile uint32_t mcx_i2c_dbg_stop_loops_max;
+
+volatile uint32_t mcx_i2c_dbg_tx_calls;
+volatile uint32_t mcx_i2c_dbg_rx_calls;
+volatile uint32_t mcx_i2c_dbg_stop_calls;
+
+volatile uint64_t mcx_i2c_dbg_tx_loops_total;
+volatile uint64_t mcx_i2c_dbg_rx_loops_total;
+volatile uint64_t mcx_i2c_dbg_stop_loops_total;
+
+volatile uint32_t mcx_i2c_dbg_read_transactions;
+
+volatile uint32_t mcx_i2c_dbg_read_calls;
+volatile uint32_t mcx_i2c_dbg_write_calls;
+
+volatile uint64_t mcx_i2c_dbg_read_ticks_total;
+volatile uint64_t mcx_i2c_dbg_write_ticks_total;
+
+volatile uint32_t mcx_i2c_dbg_read_ticks_max;
+volatile uint32_t mcx_i2c_dbg_write_ticks_max;
+
+/*
+ * Poll-loop diagnostics.
+ *
+ * These track the largest number of iterations spent in each wait
+ * routine since reset. They are intentionally diagnostic only and
+ * should be removed once the load regression is understood.
+ */
+volatile uint32_t mcx_i2c_dbg_tx_loops_max;
+volatile uint32_t mcx_i2c_dbg_rx_loops_max;
+volatile uint32_t mcx_i2c_dbg_stop_loops_max;
+
+volatile uint32_t mcx_i2c_dbg_read_lt_100us;
+volatile uint32_t mcx_i2c_dbg_read_100_500us;
+volatile uint32_t mcx_i2c_dbg_read_500_1000us;
+volatile uint32_t mcx_i2c_dbg_read_1_2ms;
+volatile uint32_t mcx_i2c_dbg_read_gt_2ms;
+
+static void
+i2c_dbg_record_read_duration(uint32_t elapsed)
+{
+    if (elapsed < timer_from_us(100))
+        mcx_i2c_dbg_read_lt_100us++;
+    else if (elapsed < timer_from_us(500))
+        mcx_i2c_dbg_read_100_500us++;
+    else if (elapsed < timer_from_us(1000))
+        mcx_i2c_dbg_read_500_1000us++;
+    else if (elapsed < timer_from_us(2000))
+        mcx_i2c_dbg_read_1_2ms++;
+    else
+        mcx_i2c_dbg_read_gt_2ms++;
+}
+
+static void
+i2c_dbg_update_max(volatile uint32_t *maximum, uint32_t loops)
+{
+    if (loops > *maximum)
+        *maximum = loops;
+}
 
 static void
 i2c_capture_debug_state(void)
@@ -147,7 +220,7 @@ setup_i2c_clock(void)
 }
 
 static void
-setup_i2c_controller(void)
+setup_i2c_controller(uint32_t rate)
 {
     /*
      * Start from a known peripheral state.
@@ -156,20 +229,16 @@ setup_i2c_controller(void)
     I2C->MCR = 0U;
 
     /*
-     * Default master configuration:
+     * Normal two-pin I2C master mode.
      *
-     *     2-pin open-drain mode
-     *     ACK checking enabled
-     *     prescaler = /1
-     *
-     * PINCFG=0 selects 2-pin open-drain operation.
+     * PRESCALE=0 gives a /1 divider from the 12 MHz functional clock.
      */
     I2C->MCFGR1 =
         LPI2C_MCFGR1_PINCFG(0U)
         | LPI2C_MCFGR1_PRESCALE(0U);
 
     /*
-     * No glitch filtering or bus/pin timeout yet.
+     * No digital glitch filtering or bus/pin timeout yet.
      */
     I2C->MCFGR2 = 0U;
     I2C->MCFGR3 = 0U;
@@ -180,21 +249,38 @@ setup_i2c_controller(void)
     I2C->MFCR = 0U;
 
     /*
-     * Standard-mode timing for a 12 MHz LPI2C functional clock.
-     *
-     * These values follow NXP's LPI2C_MasterSetBaudRate()
-     * calculation for:
-     *
-     *     source clock = 12 MHz
-     *     bus rate     = 100 kHz
-     *     PRESCALE     = /1
-     *     FILTSCL      = 0
+     * Timing values calculated using NXP's
+     * LPI2C_MasterSetBaudRate() algorithm for a 12 MHz
+     * LPI2C functional clock and FILTSCL=0.
      */
-    I2C->MCCR0 =
-        LPI2C_MCCR0_CLKHI(I2C_100K_CLKHI)
-        | LPI2C_MCCR0_CLKLO(I2C_100K_CLKLO)
-        | LPI2C_MCCR0_SETHOLD(I2C_100K_SETHOLD)
-        | LPI2C_MCCR0_DATAVD(I2C_100K_DATAVD);
+    switch (rate) {
+    case 100000U:
+        I2C->MCCR0 =
+            LPI2C_MCCR0_CLKHI(I2C_100K_CLKHI)
+            | LPI2C_MCCR0_CLKLO(I2C_100K_CLKLO)
+            | LPI2C_MCCR0_SETHOLD(I2C_100K_SETHOLD)
+            | LPI2C_MCCR0_DATAVD(I2C_100K_DATAVD);
+        break;
+
+    case 400000U:
+        I2C->MCCR0 =
+            LPI2C_MCCR0_CLKHI(I2C_400K_CLKHI)
+            | LPI2C_MCCR0_CLKLO(I2C_400K_CLKLO)
+            | LPI2C_MCCR0_SETHOLD(I2C_400K_SETHOLD)
+            | LPI2C_MCCR0_DATAVD(I2C_400K_DATAVD);
+        break;
+
+    case 1000000U:
+        I2C->MCCR0 =
+            LPI2C_MCCR0_CLKHI(I2C_1M_CLKHI)
+            | LPI2C_MCCR0_CLKLO(I2C_1M_CLKLO)
+            | LPI2C_MCCR0_SETHOLD(I2C_1M_SETHOLD)
+            | LPI2C_MCCR0_DATAVD(I2C_1M_DATAVD);
+        break;
+
+    default:
+        shutdown("Unsupported i2c rate");
+    }
 
     /*
      * Timing is configured. Enable master operation.
@@ -246,9 +332,15 @@ i2c_setup(uint32_t bus, uint32_t rate, uint8_t addr)
         shutdown("Unsupported i2c bus");
 
     /*
-     * First implementation supports standard-mode I2C only.
+     * Supported modes:
+     *
+     *     100 kHz  - Standard-mode
+     *     400 kHz  - Fast-mode
+     *     1 MHz    - Fast-mode Plus
      */
-    if (rate != 100000U)
+    if (rate != 100000U
+        && rate != 400000U
+        && rate != 1000000U)
         shutdown("Unsupported i2c rate");
 
     if (addr > 0x7fU)
@@ -256,13 +348,14 @@ i2c_setup(uint32_t bus, uint32_t rate, uint8_t addr)
 
     setup_i2c_clock();
     setup_i2c_pins();
-    setup_i2c_controller();
+    setup_i2c_controller(rate);
 
     return (struct i2c_config) {
         .i2c = I2C,
         .addr = addr,
     };
 }
+
 
 static int
 i2c_check_error(LPI2C_Type *i2c, uint32_t status)
@@ -338,17 +431,33 @@ i2c_recover_timeout(LPI2C_Type *i2c)
 static int
 i2c_wait_tx_ready(LPI2C_Type *i2c, uint32_t timeout)
 {
+    uint32_t loops = 0;
+
     for (;;) {
+        loops++;
+
         uint32_t status = i2c->MSR;
 
         int ret = i2c_check_error(i2c, status);
-        if (ret != I2C_BUS_SUCCESS)
+        if (ret != I2C_BUS_SUCCESS) {
+            i2c_dbg_update_max(&mcx_i2c_dbg_tx_loops_max, loops);
+            mcx_i2c_dbg_tx_calls++;
+            mcx_i2c_dbg_tx_loops_total += loops;
             return ret;
+        }
 
-        if (status & LPI2C_MSR_TDF_MASK)
+        if (status & LPI2C_MSR_TDF_MASK) {
+            i2c_dbg_update_max(&mcx_i2c_dbg_tx_loops_max, loops);
+            mcx_i2c_dbg_tx_calls++;
+            mcx_i2c_dbg_tx_loops_total += loops;
             return I2C_BUS_SUCCESS;
+        }
 
         if (!timer_is_before(timer_read_time(), timeout)) {
+            i2c_dbg_update_max(&mcx_i2c_dbg_tx_loops_max, loops);
+            mcx_i2c_dbg_tx_calls++;
+            mcx_i2c_dbg_tx_loops_total += loops;
+
             i2c_recover_timeout(i2c);
             return I2C_BUS_TIMEOUT;
         }
@@ -358,21 +467,38 @@ i2c_wait_tx_ready(LPI2C_Type *i2c, uint32_t timeout)
 static int
 i2c_read_byte(LPI2C_Type *i2c, uint8_t *data, uint32_t timeout)
 {
+    uint32_t loops = 0;
+
     for (;;) {
+        loops++;
+
         uint32_t status = i2c->MSR;
 
         int ret = i2c_check_error(i2c, status);
-        if (ret != I2C_BUS_SUCCESS)
+        if (ret != I2C_BUS_SUCCESS) {
+            i2c_dbg_update_max(&mcx_i2c_dbg_rx_loops_max, loops);
+            mcx_i2c_dbg_rx_calls++;
+            mcx_i2c_dbg_rx_loops_total += loops;
             return ret;
+        }
 
         uint32_t value = i2c->MRDR;
 
         if (!(value & LPI2C_MRDR_RXEMPTY_MASK)) {
             *data = value & LPI2C_MRDR_DATA_MASK;
+
+            i2c_dbg_update_max(&mcx_i2c_dbg_rx_loops_max, loops);
+            mcx_i2c_dbg_rx_calls++;
+            mcx_i2c_dbg_rx_loops_total += loops;
+
             return I2C_BUS_SUCCESS;
         }
 
         if (!timer_is_before(timer_read_time(), timeout)) {
+            i2c_dbg_update_max(&mcx_i2c_dbg_rx_loops_max, loops);
+            mcx_i2c_dbg_rx_calls++;
+            mcx_i2c_dbg_rx_loops_total += loops;
+
             i2c_recover_timeout(i2c);
             return I2C_BUS_TIMEOUT;
         }
@@ -382,19 +508,36 @@ i2c_read_byte(LPI2C_Type *i2c, uint8_t *data, uint32_t timeout)
 static int
 i2c_wait_stop(LPI2C_Type *i2c, uint32_t timeout)
 {
+    uint32_t loops = 0;
+
     for (;;) {
+        loops++;
+
         uint32_t status = i2c->MSR;
 
         int ret = i2c_check_error(i2c, status);
-        if (ret != I2C_BUS_SUCCESS)
+        if (ret != I2C_BUS_SUCCESS) {
+            i2c_dbg_update_max(&mcx_i2c_dbg_stop_loops_max, loops);
+            mcx_i2c_dbg_stop_calls++;
+            mcx_i2c_dbg_stop_loops_total += loops;
             return ret;
+        }
 
         if (status & LPI2C_MSR_SDF_MASK) {
             i2c->MSR = LPI2C_MSR_SDF_MASK;
+
+            i2c_dbg_update_max(&mcx_i2c_dbg_stop_loops_max, loops);
+            mcx_i2c_dbg_stop_calls++;
+            mcx_i2c_dbg_stop_loops_total += loops;
+
             return I2C_BUS_SUCCESS;
         }
 
         if (!timer_is_before(timer_read_time(), timeout)) {
+            i2c_dbg_update_max(&mcx_i2c_dbg_stop_loops_max, loops);
+            mcx_i2c_dbg_stop_calls++;
+            mcx_i2c_dbg_stop_loops_total += loops;
+
             i2c_recover_timeout(i2c);
             return I2C_BUS_TIMEOUT;
         }
@@ -404,13 +547,12 @@ i2c_wait_stop(LPI2C_Type *i2c, uint32_t timeout)
 int
 i2c_write(struct i2c_config config, uint8_t write_len, uint8_t *write)
 {
+    uint32_t start_time = timer_read_time();
+
     LPI2C_Type *i2c = config.i2c;
     uint32_t timeout =
-        timer_read_time() + timer_from_us(5000);
+        start_time + timer_from_us(5000);
 
-    /*
-     * Clear status left over from a previous transaction.
-     */
     i2c->MSR =
         LPI2C_MSR_SDF_MASK
         | LPI2C_MSR_NDF_MASK
@@ -418,12 +560,9 @@ i2c_write(struct i2c_config config, uint8_t write_len, uint8_t *write)
         | LPI2C_MSR_FEF_MASK
         | LPI2C_MSR_PLTF_MASK;
 
-    /*
-     * Generate START and transmit the 7-bit address with R/W = 0.
-     */
     int ret = i2c_wait_tx_ready(i2c, timeout);
     if (ret != I2C_BUS_SUCCESS)
-        return ret;
+        goto out;
 
     i2c->MTDR =
         LPI2C_MTDR_CMD(I2C_CMD_START)
@@ -433,19 +572,10 @@ i2c_write(struct i2c_config config, uint8_t write_len, uint8_t *write)
     mcx_i2c_dbg_after_start_mfsr = i2c->MFSR;
     mcx_i2c_dbg_after_start_mcr = i2c->MCR;
 
-    /*
-     * Wait until the transmit FIFO can accept another command.
-     *
-     * TDF indicates FIFO availability; it does not guarantee that
-     * the address phase has completed on the bus.
-     */
     ret = i2c_wait_tx_ready(i2c, timeout);
     if (ret != I2C_BUS_SUCCESS)
-        return ret;
+        goto out;
 
-    /*
-     * Queue the payload bytes.
-     */
     while (write_len--) {
         i2c->MTDR =
             LPI2C_MTDR_CMD(I2C_CMD_TX_DATA)
@@ -453,15 +583,25 @@ i2c_write(struct i2c_config config, uint8_t write_len, uint8_t *write)
 
         ret = i2c_wait_tx_ready(i2c, timeout);
         if (ret != I2C_BUS_SUCCESS)
-            return ret;
+            goto out;
     }
 
-    /*
-     * Generate STOP and wait until it has actually appeared on the bus.
-     */
     i2c->MTDR = LPI2C_MTDR_CMD(I2C_CMD_STOP);
 
-    return i2c_wait_stop(i2c, timeout);
+    ret = i2c_wait_stop(i2c, timeout);
+
+out:
+    {
+        uint32_t elapsed = timer_read_time() - start_time;
+
+        mcx_i2c_dbg_write_calls++;
+        mcx_i2c_dbg_write_ticks_total += elapsed;
+
+        if (elapsed > mcx_i2c_dbg_write_ticks_max)
+            mcx_i2c_dbg_write_ticks_max = elapsed;
+    }
+
+    return ret;
 }
 
 int
@@ -469,15 +609,28 @@ i2c_read(struct i2c_config config,
          uint8_t reg_len, uint8_t *reg,
          uint8_t read_len, uint8_t *read)
 {
+    uint32_t start_time = timer_read_time();
+
     LPI2C_Type *i2c = config.i2c;
     uint32_t timeout =
-        timer_read_time() + timer_from_us(5000);
+        start_time + timer_from_us(5000);
 
-    if (!read_len)
+    if (!read_len) {
+        uint32_t elapsed = timer_read_time() - start_time;
+
+        mcx_i2c_dbg_read_calls++;
+        mcx_i2c_dbg_read_ticks_total += elapsed;
+
+        if (elapsed > mcx_i2c_dbg_read_ticks_max)
+            mcx_i2c_dbg_read_ticks_max = elapsed;
+
+        i2c_dbg_record_read_duration(elapsed);
+
         return I2C_BUS_SUCCESS;
+    }
 
     /*
-     * Clear status left over from a previous transaction.
+     * Clear sticky status from the previous transaction.
      */
     i2c->MSR =
         LPI2C_MSR_SDF_MASK
@@ -490,43 +643,30 @@ i2c_read(struct i2c_config config,
 
     if (reg_len) {
         /*
-         * START + slave address with R/W = 0.
+         * START + address, write direction.
          */
         ret = i2c_wait_tx_ready(i2c, timeout);
         if (ret != I2C_BUS_SUCCESS)
-            return ret;
+            goto out;
 
         i2c->MTDR =
             LPI2C_MTDR_CMD(I2C_CMD_START)
             | LPI2C_MTDR_DATA((uint32_t)config.addr << 1);
 
-        /*
-         * Snapshot immediately after queuing the first START/address.
-         */
         mcx_i2c_dbg_read_start1_msr = i2c->MSR;
         mcx_i2c_dbg_read_start1_mfsr = i2c->MFSR;
         mcx_i2c_dbg_read_start1_mcr = i2c->MCR;
 
-        /*
-         * Wait until the transmit FIFO can accept another command.
-         *
-         * TDF indicates FIFO availability; it does not guarantee that
-         * the address phase has completed on the bus.
-         */
         ret = i2c_wait_tx_ready(i2c, timeout);
         if (ret != I2C_BUS_SUCCESS)
-            return ret;
+            goto out;
 
-        /*
-         * Snapshot after the START/address command has been consumed
-         * enough for TDF to assert again.
-         */
         mcx_i2c_dbg_after_tdf_msr = i2c->MSR;
         mcx_i2c_dbg_after_tdf_mfsr = i2c->MFSR;
         mcx_i2c_dbg_after_tdf_mcr = i2c->MCR;
 
         /*
-         * Send the register/subaddress bytes without issuing STOP.
+         * Send register/subaddress bytes.
          */
         while (reg_len--) {
             i2c->MTDR =
@@ -535,40 +675,31 @@ i2c_read(struct i2c_config config,
 
             ret = i2c_wait_tx_ready(i2c, timeout);
             if (ret != I2C_BUS_SUCCESS)
-                return ret;
+                goto out;
         }
     }
 
     /*
-     * Generate START or repeated START with R/W = 1.
+     * START/repeated START + address, read direction.
      */
     ret = i2c_wait_tx_ready(i2c, timeout);
     if (ret != I2C_BUS_SUCCESS)
-        return ret;
+        goto out;
 
     i2c->MTDR =
         LPI2C_MTDR_CMD(I2C_CMD_START)
         | LPI2C_MTDR_DATA(((uint32_t)config.addr << 1) | 1U);
 
-    /*
-     * Snapshot immediately after queuing the repeated START/address.
-     */
     mcx_i2c_dbg_read_start2_msr = i2c->MSR;
     mcx_i2c_dbg_read_start2_mfsr = i2c->MFSR;
     mcx_i2c_dbg_read_start2_mcr = i2c->MCR;
 
-    /*
-     * Wait until the transmit FIFO can accept the receive command.
-     *
-     * TDF is not an address-ACK indication, so any NACK observed here
-     * is reported generically.
-     */
     ret = i2c_wait_tx_ready(i2c, timeout);
     if (ret != I2C_BUS_SUCCESS)
-        return ret;
+        goto out;
 
     /*
-     * Request read_len bytes. LPI2C encodes this as N - 1.
+     * Request read_len bytes.
      */
     i2c->MTDR =
         LPI2C_MTDR_CMD(I2C_CMD_RX_DATA)
@@ -577,18 +708,39 @@ i2c_read(struct i2c_config config,
     while (read_len--) {
         ret = i2c_read_byte(i2c, read, timeout);
         if (ret != I2C_BUS_SUCCESS)
-            return ret;
+            goto out;
+
         read++;
     }
 
     /*
-     * End the transaction.
+     * Queue STOP and wait for completion.
      */
     ret = i2c_wait_tx_ready(i2c, timeout);
     if (ret != I2C_BUS_SUCCESS)
-        return ret;
+        goto out;
 
-    i2c->MTDR = LPI2C_MTDR_CMD(I2C_CMD_STOP);
+    i2c->MTDR =
+        LPI2C_MTDR_CMD(I2C_CMD_STOP);
 
-    return i2c_wait_stop(i2c, timeout);
+    ret = i2c_wait_stop(i2c, timeout);
+
+    if (ret == I2C_BUS_SUCCESS)
+        mcx_i2c_dbg_read_transactions++;
+
+out:
+    {
+        uint32_t elapsed =
+            timer_read_time() - start_time;
+
+        mcx_i2c_dbg_read_calls++;
+        mcx_i2c_dbg_read_ticks_total += elapsed;
+
+        if (elapsed > mcx_i2c_dbg_read_ticks_max)
+            mcx_i2c_dbg_read_ticks_max = elapsed;
+
+        i2c_dbg_record_read_duration(elapsed);
+    }
+
+    return ret;
 }
