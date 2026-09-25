@@ -35,6 +35,7 @@ src-$(CONFIG_SERIAL) += mcx/serial.c generic/serial_irq.c
 src-$(CONFIG_WANT_ADC) += mcx/adc.c
 src-$(CONFIG_WANT_SPI) += mcx/spi.c
 src-$(CONFIG_WANT_I2C) += mcx/i2c.c
+src-$(CONFIG_WANT_HARD_PWM) += mcx/hard_pwm.c
 
 src-$(CONFIG_CANSERIAL) += mcx/can.c
 src-$(CONFIG_CANSERIAL) += mcx/chipid.c
