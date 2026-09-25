@@ -3,7 +3,6 @@
 
 #include <stdint.h> // uint32_t
 
-
 struct gpio_out {
     void *regs;
     uint32_t bit;
@@ -15,7 +14,6 @@ void gpio_out_toggle_noirq(struct gpio_out g);
 void gpio_out_toggle(struct gpio_out g);
 void gpio_out_write(struct gpio_out g, uint32_t val);
 
-
 struct gpio_in {
     void *regs;
     uint32_t bit;
@@ -24,7 +22,6 @@ struct gpio_in {
 struct gpio_in gpio_in_setup(uint32_t pin, int32_t pull_up);
 void gpio_in_reset(struct gpio_in g, int32_t pull_up);
 uint8_t gpio_in_read(struct gpio_in g);
-
 
 struct gpio_adc {
     void *regs;
@@ -36,7 +33,6 @@ uint32_t gpio_adc_sample(struct gpio_adc g);
 uint16_t gpio_adc_read(struct gpio_adc g);
 void gpio_adc_cancel_sample(struct gpio_adc g);
 
-
 struct spi_config {
     void *spi;
     uint32_t ccr;
@@ -47,7 +43,6 @@ struct spi_config spi_setup(uint32_t bus, uint8_t mode, uint32_t rate);
 void spi_prepare(struct spi_config config);
 void spi_transfer(struct spi_config config, uint8_t receive_data,
                   uint8_t len, uint8_t *data);
-
 
 struct i2c_config {
     void *i2c;
@@ -61,18 +56,15 @@ int i2c_read(struct i2c_config config,
              uint8_t reg_len, uint8_t *reg,
              uint8_t read_len, uint8_t *read);
 
-
 struct gpio_pwm {
-    void *regs;
+    void *timer;
     uint32_t hwpwm_ticks;
-    uint8_t provider;
     uint8_t channel;
-    uint8_t submodule;
 };
 
 struct gpio_pwm gpio_pwm_setup(uint8_t pin, uint32_t cycle_time,
-                               uint32_t val);
-void gpio_pwm_write(struct gpio_pwm g, uint32_t val);
+                                uint32_t val);
 
+void gpio_pwm_write(struct gpio_pwm g, uint32_t val);
 
 #endif // gpio.h
