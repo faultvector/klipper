@@ -56,4 +56,15 @@ int i2c_read(struct i2c_config config,
              uint8_t reg_len, uint8_t *reg,
              uint8_t read_len, uint8_t *read);
 
+struct gpio_pwm {
+    void *timer;
+    uint32_t hwpwm_ticks;
+    uint8_t channel;
+};
+
+struct gpio_pwm gpio_pwm_setup(uint8_t pin, uint32_t cycle_time,
+                                uint32_t val);
+
+void gpio_pwm_write(struct gpio_pwm g, uint32_t val);
+
 #endif // gpio.h
