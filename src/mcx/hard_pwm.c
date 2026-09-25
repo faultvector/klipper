@@ -197,7 +197,19 @@ gpio_pwm_write(struct gpio_pwm g, uint32_t val)
          + MAX_PWM / 2U)
          / MAX_PWM;
 
-    timer->MR[g.channel] = (uint32_t)pulse;
+    /*
+    * Use the match shadow register while the timer is running.
+    *
+    * MR2RL causes MSR2 to be copied into MR2 when the PWM period
+    * resets, so duty changes occur cleanly at a cycle boundary.
+    *
+    * Before the timer has started, initialize both registers so the
+    * first PWM cycle already has the requested duty.
+    */
+    timer->MSR[g.channel] = (uint32_t)pulse;
+    
+    if (!(timer->TCR & CTIMER_TCR_CEN_MASK))
+        timer->MR[g.channel] = (uint32_t)pulse;
 }
 
 
@@ -240,8 +252,9 @@ gpio_pwm_write(struct gpio_pwm g, uint32_t val)
          *
          * Reset the counter whenever TC matches MR3.
          */
-         CTIMER1->MCR =
-            CTIMER_MCR_MR3R_MASK;
+        CTIMER1->MCR =
+            CTIMER_MCR_MR3R_MASK
+            | CTIMER_MCR_MR2RL_MASK;
 
         CTIMER1->MR[PWM_PERIOD_CHANNEL] =
             period_ticks - 1U;
