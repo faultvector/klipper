@@ -15,14 +15,20 @@
 
 DECL_CONSTANT("PWM_MAX", MAX_PWM);
 
-#define CTIMER_COUNT 5U
-#define CTIMER_CHANNEL_COUNT 4U
-#define CTIMER_NO_CHANNEL 0xffU
+
+/****************************************************************
+ * PWM providers
+ ****************************************************************/
+
+#define MCX_PWM_CTIMER   0U
+#define MCX_PWM_FLEXPWM  1U
 
 
 /****************************************************************
  * CTIMER resources
  ****************************************************************/
+
+#define CTIMER_COUNT 5U
 
 struct ctimer_state {
     uint32_t period_ticks;
@@ -34,9 +40,6 @@ struct ctimer_state {
 static struct ctimer_state ctimer_states[CTIMER_COUNT];
 
 
-/*
- * Hardware instances.
- */
 static CTIMER_Type * const ctimer_regs[CTIMER_COUNT] = {
     CTIMER0,
     CTIMER1,
@@ -46,9 +49,6 @@ static CTIMER_Type * const ctimer_regs[CTIMER_COUNT] = {
 };
 
 
-/*
- * MRCC clock selection/divider registers.
- */
 static volatile uint32_t * const ctimer_clksel[CTIMER_COUNT] = {
     &MRCC0->MRCC_CTIMER0_CLKSEL,
     &MRCC0->MRCC_CTIMER1_CLKSEL,
@@ -56,6 +56,7 @@ static volatile uint32_t * const ctimer_clksel[CTIMER_COUNT] = {
     &MRCC0->MRCC_CTIMER3_CLKSEL,
     &MRCC0->MRCC_CTIMER4_CLKSEL,
 };
+
 
 static volatile uint32_t * const ctimer_clkdiv[CTIMER_COUNT] = {
     &MRCC0->MRCC_CTIMER0_CLKDIV,
@@ -130,7 +131,7 @@ struct ctimer_pwm_route {
 /*
  * Derived from the MCXA366VLQ NXP pinmux definitions.
  *
- * A physical pin may have more than one CTIMER route.  The allocator
+ * A physical pin may have more than one CTIMER route. The allocator
  * can use an alternate route when that avoids a timing-domain or
  * channel conflict.
  */
@@ -262,27 +263,27 @@ static const struct ctimer_pwm_route ctimer_routes[] = {
 
 
 /****************************************************************
- * Register helpers
+ * CTIMER register helpers
  ****************************************************************/
 
- static uint32_t
- ctimer_reset_bit(uint8_t channel)
- {
+static uint32_t
+ctimer_reset_bit(uint8_t channel)
+{
     return CTIMER_MCR_MR0R_MASK
         << ((uint32_t)channel * 3U);
- }
+}
 
 
- static uint32_t
- ctimer_reload_bit(uint8_t channel)
- {
+static uint32_t
+ctimer_reload_bit(uint8_t channel)
+{
     return CTIMER_MCR_MR0RL_MASK
         << channel;
- }
+}
 
 
- /****************************************************************
- * Clock setup
+/****************************************************************
+ * CTIMER clock setup
  ****************************************************************/
 
 static void
@@ -339,14 +340,14 @@ ctimer_clock_setup(uint8_t index)
 
 
 /****************************************************************
- * Pin mux setup
+ * Generic PORT mux helper
  ****************************************************************/
 
 static void
-ctimer_pin_setup(const struct ctimer_pwm_route *route)
+pwm_pin_setup(uint8_t pin, uint8_t mux)
 {
-    uint32_t port = GPIO2PORT(route->pin);
-    uint32_t pin = GPIO2PIN(route->pin);
+    uint32_t port = GPIO2PORT(pin);
+    uint32_t pin_num = GPIO2PIN(pin);
 
     if (port >= ARRAY_SIZE(port_regs))
         shutdown("Invalid PWM pin port");
@@ -364,14 +365,14 @@ ctimer_pin_setup(const struct ctimer_pwm_route *route)
 
     SYSCON->CLKUNLOCK = clkunlock;
 
-    port_regs[port]->PCR[pin] =
-        PORT_PCR_MUX(route->mux)
+    port_regs[port]->PCR[pin_num] =
+        PORT_PCR_MUX(mux)
         | PORT_PCR_SRE_MASK;
 }
 
 
 /****************************************************************
- * Timing conversion
+ * CTIMER timing conversion
  ****************************************************************/
 
 static uint32_t
@@ -381,7 +382,7 @@ cycle_time_to_ctimer_ticks(uint32_t cycle_time)
         mcx_get_fro_lf_frequency();
 
     /*
-     *Klipper cycle_time is expressed in CONFIG_CLOCK_FREQ ticks.
+     * Klipper cycle_time is expressed in CONFIG_CLOCK_FREQ ticks.
      */
     uint64_t ticks =
         ((uint64_t)cycle_time * timer_clock
@@ -393,6 +394,7 @@ cycle_time_to_ctimer_ticks(uint32_t cycle_time)
 
     return (uint32_t)ticks;
 }
+
 
 static uint32_t
 ctimer_pulse_ticks(uint32_t period_ticks, uint32_t val)
@@ -423,12 +425,12 @@ ctimer_pulse_ticks(uint32_t period_ticks, uint32_t val)
 
 
 /****************************************************************
- * Period-channel allocation
+ * CTIMER period-channel allocation
  ****************************************************************/
 
- static int
- ctimer_find_period_channel(uint8_t output_mask,
-                            uint8_t requested_output)
+static int
+ctimer_find_period_channel(uint8_t output_mask,
+                           uint8_t requested_output)
 {
     /*
      * Prefer the highest numbered free channel.
@@ -439,7 +441,7 @@ ctimer_pulse_ticks(uint32_t period_ticks, uint32_t val)
     for (int channel = 3; channel >= 0; channel--) {
         if ((uint8_t)channel == requested_output)
             continue;
-        
+
         if (!(output_mask & (1U << channel)))
             return channel;
     }
@@ -457,7 +459,7 @@ ctimer_move_period_channel(uint8_t timer_index,
 
     CTIMER_Type *timer =
         ctimer_regs[timer_index];
-    
+
     uint8_t old_channel =
         state->period_channel;
 
@@ -475,16 +477,16 @@ ctimer_move_period_channel(uint8_t timer_index,
 
     timer->MR[new_channel] =
         period_match;
-    
+
     timer->MSR[new_channel] =
         period_match;
 
     /*
-     * Atomically move the reset-on-match responsibility from the old
+     * Atomically move reset-on-match responsibility from the old
      * period channel to the new one.
      *
-     * Both match registers contain the same period value, so this does
-     * not alter the PWM frequency.
+     * Both match registers contain the same period value, so this
+     * does not alter the PWM frequency.
      */
     uint32_t mcr = timer->MCR;
 
@@ -505,7 +507,7 @@ ctimer_move_period_channel(uint8_t timer_index,
 
 
 /****************************************************************
- * Route allocation
+ * CTIMER route allocation
  ****************************************************************/
 
 static int
@@ -515,7 +517,7 @@ ctimer_route_available(const struct ctimer_pwm_route *route,
     struct ctimer_state *state =
         &ctimer_states[route->timer];
 
-    uint8_t channel_mask = 
+    uint8_t channel_mask =
         1U << route->channel;
 
     /*
@@ -559,8 +561,8 @@ ctimer_find_route(uint8_t pin, uint32_t period_ticks)
     /*
      * First preference:
      *
-     * pack the output onto an already-running timer using the same
-     * period.  This preserves unused CTIMER instances for outputs that
+     * Pack the output onto an already-running timer using the same
+     * period. This preserves unused CTIMER instances for outputs that
      * need different frequencies.
      */
     for (uint32_t i = 0;
@@ -568,7 +570,7 @@ ctimer_find_route(uint8_t pin, uint32_t period_ticks)
          i++) {
         const struct ctimer_pwm_route *route =
             &ctimer_routes[i];
-        
+
         if (route->pin != pin)
             continue;
 
@@ -582,11 +584,10 @@ ctimer_find_route(uint8_t pin, uint32_t period_ticks)
             return route;
     }
 
-
     /*
      * Second preference:
      *
-     * allocate a previously-unused CTIMER instance.
+     * Allocate a previously-unused CTIMER instance.
      */
     for (uint32_t i = 0;
          i < ARRAY_SIZE(ctimer_routes);
@@ -611,10 +612,8 @@ ctimer_find_route(uint8_t pin, uint32_t period_ticks)
 }
 
 
-
-
 /****************************************************************
- * Timer initialization
+ * CTIMER initialization
  ****************************************************************/
 
 static void
@@ -681,13 +680,13 @@ ctimer_initialize(uint8_t timer_index,
 
 
 /****************************************************************
- * PWM API
+ * CTIMER setup
  ****************************************************************/
 
-struct gpio_pwm
-gpio_pwm_setup(uint8_t pin,
-               uint32_t cycle_time,
-               uint32_t val)
+static struct gpio_pwm
+ctimer_pwm_setup(uint8_t pin,
+                 uint32_t cycle_time,
+                 uint32_t val)
 {
     uint32_t period_ticks =
         cycle_time_to_ctimer_ticks(cycle_time);
@@ -729,7 +728,9 @@ gpio_pwm_setup(uint8_t pin,
             replacement);
     }
 
-    ctimer_pin_setup(route);
+    pwm_pin_setup(
+        route->pin,
+        route->mux);
 
     uint32_t pulse =
         ctimer_pulse_ticks(
@@ -764,9 +765,11 @@ gpio_pwm_setup(uint8_t pin,
         1U << route->channel;
 
     struct gpio_pwm g = {
-        .timer = timer,
+        .regs = timer,
         .hwpwm_ticks = period_ticks,
+        .provider = MCX_PWM_CTIMER,
         .channel = route->channel,
+        .submodule = 0U,
     };
 
     /*
@@ -780,29 +783,391 @@ gpio_pwm_setup(uint8_t pin,
 }
 
 
-void
-gpio_pwm_write(struct gpio_pwm g, uint32_t val)
-{
-    CTIMER_Type *timer =
-        g.timer;
+/****************************************************************
+ * FlexPWM first-light support
+ ****************************************************************/
 
-    uint32_t pulse =
-        ctimer_pulse_ticks(
-            g.hwpwm_ticks,
+/*
+ * First FlexPWM route:
+ *
+ *     P3_0
+ *       -> ALT5
+ *       -> FLEXPWM0
+ *       -> submodule 0
+ *       -> PWM A
+ *
+ * This is intentionally restricted to one known-good board pin until
+ * the peripheral behavior is validated on hardware.
+ */
+#define FLEXPWM_TEST_PIN          GPIO(3, 0)
+#define FLEXPWM_TEST_MUX          5U
+#define FLEXPWM_TEST_SUBMODULE    0U
+
+#define FLEXPWM_CHANNEL_X         0U
+#define FLEXPWM_CHANNEL_B         1U
+#define FLEXPWM_CHANNEL_A         2U
+
+
+struct flexpwm_timing {
+    uint16_t period_ticks;
+    uint8_t prescale;
+};
+
+
+static uint8_t flexpwm0_initialized;
+
+
+/****************************************************************
+ * FlexPWM clock/reset setup
+ ****************************************************************/
+
+static void
+flexpwm0_clock_setup(void)
+{
+    if (flexpwm0_initialized)
+        return;
+
+    uint32_t clkunlock =
+        SYSCON->CLKUNLOCK;
+
+    SYSCON->CLKUNLOCK =
+        clkunlock & ~SYSCON_CLKUNLOCK_UNLOCK_MASK;
+
+    /*
+     * Enable FLEXPWM0 register/interface clock.
+     */
+    MRCC0->MRCC_GLB_CC0_SET =
+        MRCC_MRCC_GLB_CC0_FLEXPWM0_MASK;
+
+    /*
+     * Assert then release FLEXPWM0 reset.
+     */
+    MRCC0->MRCC_GLB_RST0_CLR =
+        MRCC_MRCC_GLB_RST0_FLEXPWM0_MASK;
+
+    MRCC0->MRCC_GLB_RST0_SET =
+        MRCC_MRCC_GLB_RST0_FLEXPWM0_MASK;
+
+    SYSCON->CLKUNLOCK =
+        clkunlock;
+
+    /*
+     * Establish known global state.
+     */
+    FLEXPWM0->OUTEN = 0U;
+    FLEXPWM0->MASK = 0U;
+    FLEXPWM0->DTSRCSEL = 0U;
+    FLEXPWM0->MCTRL = 0U;
+
+    /*
+     * Clear any latched fault flags.
+     */
+    FLEXPWM0->FSTS |=
+        PWM_FSTS_FFLAG_MASK;
+
+    flexpwm0_initialized = 1U;
+}
+
+
+/****************************************************************
+ * FlexPWM timing
+ ****************************************************************/
+
+static struct flexpwm_timing
+flexpwm_get_timing(uint32_t cycle_time)
+{
+    /*
+     * The MCXA366 SDK uses SYSTEM_CLK as the FLEXPWM source.
+     *
+     * The current MCX clock configuration runs MAIN_CLK directly
+     * from the factory-trimmed 240 MHz FRO_HF.
+     */
+    uint32_t source_clock =
+        mcx_get_fro_hf_frequency();
+
+    uint64_t raw_ticks =
+        ((uint64_t)cycle_time * source_clock
+         + CONFIG_CLOCK_FREQ / 2U)
+        / CONFIG_CLOCK_FREQ;
+
+    /*
+     * FLEXPWM has a 16-bit counter and a /1 through /128 power-of-two
+     * prescaler.
+     *
+     * Select the smallest divider that lets the requested period fit.
+     */
+    for (uint8_t prescale = 0U;
+         prescale <= 7U;
+         prescale++) {
+        uint32_t divider =
+            1U << prescale;
+
+        uint64_t ticks =
+            (raw_ticks + divider / 2U)
+            / divider;
+
+        if (ticks < 2U)
+            ticks = 2U;
+
+        if (ticks <= 0xffffU) {
+            struct flexpwm_timing timing = {
+                .period_ticks = (uint16_t)ticks,
+                .prescale = prescale,
+            };
+
+            return timing;
+        }
+    }
+
+    shutdown("FlexPWM cycle time too long");
+}
+
+
+static uint16_t
+flexpwm_high_ticks(uint32_t period_ticks,
+                   uint32_t val)
+{
+    if (val > MAX_PWM)
+        val = MAX_PWM;
+
+    uint64_t high_ticks =
+        ((uint64_t)period_ticks * val
+         + MAX_PWM / 2U)
+        / MAX_PWM;
+
+    if (high_ticks > period_ticks)
+        high_ticks = period_ticks;
+
+    return (uint16_t)high_ticks;
+}
+
+
+/****************************************************************
+ * FlexPWM setup
+ ****************************************************************/
+
+static struct gpio_pwm
+flexpwm_setup_p3_0(uint32_t cycle_time,
+                   uint32_t val)
+{
+    struct flexpwm_timing timing =
+        flexpwm_get_timing(cycle_time);
+
+    PWM_Type *pwm =
+        FLEXPWM0;
+
+    uint8_t sm =
+        FLEXPWM_TEST_SUBMODULE;
+
+    uint16_t sm_mask =
+        1U << sm;
+
+    flexpwm0_clock_setup();
+
+    /*
+     * P3_0 = PWM0_A0 on ALT5.
+     */
+    pwm_pin_setup(
+        FLEXPWM_TEST_PIN,
+        FLEXPWM_TEST_MUX);
+
+    /*
+     * Stop submodule 0 while establishing its timing domain.
+     */
+    pwm->MCTRL &=
+        ~PWM_MCTRL_RUN(sm_mask);
+
+    /*
+     * CTRL2:
+     *
+     *     CLK_SEL    = 0 -> IPBus/system clock
+     *     RELOAD_SEL = 0 -> local reload
+     *     FORCE_SEL  = 0 -> local FORCE
+     *     INIT_SEL   = 0 -> local sync
+     *     INDEP      = 1 -> PWM A/B operate independently
+     */
+    pwm->SM[sm].CTRL2 =
+        PWM_CTRL2_INDEP_MASK;
+
+    /*
+     * Match the relevant behavior of NXP's PWM_Init().
+     */
+    pwm->SM[sm].CTRL2 |=
+        PWM_CTRL2_FORCE_MASK;
+
+    /*
+     * Edge-aligned PWM.
+     *
+     * Reload buffered values at each full-cycle opportunity.
+     */
+    pwm->SM[sm].CTRL =
+        PWM_CTRL_PRSC(timing.prescale)
+        | PWM_CTRL_FULL_MASK;
+
+    /*
+     * Unsigned edge-aligned period:
+     *
+     *     INIT = 0
+     *     VAL1 = period - 1
+     *
+     * VAL0 is the nominal half-cycle point.
+     */
+    pwm->SM[sm].INIT =
+        0U;
+
+    pwm->SM[sm].VAL0 =
+        timing.period_ticks / 2U;
+
+    pwm->SM[sm].VAL1 =
+        timing.period_ticks - 1U;
+
+    /*
+     * PWM A is active high and its fault state is logic low.
+     */
+    pwm->SM[sm].OCTRL &=
+        ~(PWM_OCTRL_POLA_MASK
+          | PWM_OCTRL_PWMAFS_MASK);
+
+    /*
+     * Edge-aligned PWM A:
+     *
+     *     VAL2 = rising edge
+     *     VAL3 = falling edge
+     */
+    pwm->SM[sm].VAL2 =
+        0U;
+
+    pwm->SM[sm].VAL3 =
+        flexpwm_high_ticks(
+            timing.period_ticks,
             val);
 
     /*
-     * MRxRL transfers the shadow value into MRx at the next timer
-     * reset, giving glitch-free duty changes.
+     * Enable PWM0_A0.
      */
-    timer->MSR[g.channel] =
-        pulse;
+    pwm->OUTEN |=
+        PWM_OUTEN_PWMA_EN(sm_mask);
 
     /*
-     * This mainly covers setup/shutdown cases where the timer is not
-     * yet running.
+     * Mark buffered values ready for reload.
      */
-    if (!(timer->TCR & CTIMER_TCR_CEN_MASK))
-        timer->MR[g.channel] =
+    pwm->MCTRL |=
+        PWM_MCTRL_LDOK(sm_mask);
+
+    /*
+     * Start submodule 0.
+     */
+    pwm->MCTRL |=
+        PWM_MCTRL_RUN(sm_mask);
+
+    struct gpio_pwm g = {
+        .regs = pwm,
+        .hwpwm_ticks = timing.period_ticks,
+        .provider = MCX_PWM_FLEXPWM,
+        .channel = FLEXPWM_CHANNEL_A,
+        .submodule = sm,
+    };
+
+    return g;
+}
+
+
+/****************************************************************
+ * PWM API
+ ****************************************************************/
+
+struct gpio_pwm
+gpio_pwm_setup(uint8_t pin,
+               uint32_t cycle_time,
+               uint32_t val)
+{
+    /*
+     * First-light FlexPWM route.
+     *
+     * Keep this explicit until FLEXPWM0_A0 is validated on hardware.
+     */
+    if (pin == FLEXPWM_TEST_PIN)
+        return flexpwm_setup_p3_0(
+            cycle_time,
+            val);
+
+    return ctimer_pwm_setup(
+        pin,
+        cycle_time,
+        val);
+}
+
+
+void
+gpio_pwm_write(struct gpio_pwm g,
+               uint32_t val)
+{
+    if (g.provider == MCX_PWM_CTIMER) {
+        CTIMER_Type *timer =
+            g.regs;
+
+        uint32_t pulse =
+            ctimer_pulse_ticks(
+                g.hwpwm_ticks,
+                val);
+
+        /*
+         * MRxRL transfers the shadow value into MRx at the next timer
+         * reset, giving glitch-free duty changes.
+         */
+        timer->MSR[g.channel] =
             pulse;
+
+        /*
+         * This mainly covers setup/shutdown cases where the timer is
+         * not yet running.
+         */
+        if (!(timer->TCR & CTIMER_TCR_CEN_MASK))
+            timer->MR[g.channel] =
+                pulse;
+
+        return;
+    }
+
+    if (g.provider == MCX_PWM_FLEXPWM) {
+        PWM_Type *pwm =
+            g.regs;
+
+        uint16_t sm_mask =
+            1U << g.submodule;
+
+        uint16_t high_ticks =
+            flexpwm_high_ticks(
+                g.hwpwm_ticks,
+                val);
+
+        /*
+         * Clear LDOK before changing buffered VAL registers.
+         */
+        pwm->MCTRL |=
+            PWM_MCTRL_CLDOK(sm_mask);
+
+        switch (g.channel) {
+        case FLEXPWM_CHANNEL_A:
+            pwm->SM[g.submodule].VAL2 =
+                0U;
+
+            pwm->SM[g.submodule].VAL3 =
+                high_ticks;
+            break;
+
+        default:
+            shutdown("Unsupported FlexPWM channel");
+        }
+
+        /*
+         * Arm the new value for the next full-cycle reload.
+         */
+        pwm->MCTRL |=
+            PWM_MCTRL_LDOK(sm_mask);
+
+        return;
+    }
+
+    shutdown("Invalid PWM provider");
 }
