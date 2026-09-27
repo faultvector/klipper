@@ -910,11 +910,11 @@ static struct flexpwm_timing
 flexpwm_get_timing(uint32_t cycle_time)
 {
     /*
-     * Keep the current 120 MHz timing assumption for this test.
-     * We are isolating control-path behavior, not frequency scaling.
+     * FLEXPWM0 IPBus clock is running at the full 240 MHz system
+     * clock on MCXA366.
      */
     uint32_t source_clock =
-        mcx_get_fro_hf_frequency() / 2U;
+        mcx_get_fro_hf_frequency();
 
     uint64_t raw_ticks =
         ((uint64_t)cycle_time * source_clock
@@ -1136,449 +1136,253 @@ flexpwm_dump_state(uint32_t tag)
         GPIO3->PDDR);
 }
 
+static void
+flexpwm_set_duty(PWM_Type *pwm,
+                 uint8_t sm,
+                 uint16_t period_ticks,
+                 uint32_t val)
+{
+    if (val > MAX_PWM)
+        val = MAX_PWM;
+
+    uint16_t half_period =
+        period_ticks / 2U;
+
+    if (val == 0U) {
+        /*
+         * Zero-width pulse.
+         */
+        pwm->SM[sm].VAL2 =
+            0U;
+
+        pwm->SM[sm].VAL3 =
+            0U;
+
+        return;
+    }
+
+    if (val == MAX_PWM) {
+        /*
+         * Cover the entire counter range.
+         */
+        pwm->SM[sm].VAL2 =
+            (uint16_t)(0U - half_period);
+
+        pwm->SM[sm].VAL3 =
+            half_period;
+
+        return;
+    }
+
+    uint32_t high_ticks =
+        ((uint64_t)period_ticks * val
+         + MAX_PWM / 2U)
+        / MAX_PWM;
+
+    uint16_t half_high =
+        (uint16_t)(high_ticks / 2U);
+
+    pwm->SM[sm].VAL2 =
+        (uint16_t)(0U - half_high);
+
+    pwm->SM[sm].VAL3 =
+        half_high;
+}
+
+
 static struct gpio_pwm
 flexpwm_setup_p3_0(uint32_t cycle_time,
                    uint32_t val)
 {
+    struct flexpwm_timing timing =
+        flexpwm_get_timing(cycle_time);
+
     PWM_Type *pwm =
         FLEXPWM0;
 
-    /*
-     * This test deliberately clones the known-good SDK state.
-     *
-     * SDK observed:
-     *
-     *   INIT = 38304
-     *   VAL1 = 27231
-     *   VAL2 = 51920
-     *   VAL3 = 13616
-     *
-     * The effective modValue in the SDK example is 54464.
-     */
-    const uint16_t init =
-        38304U;
+    uint8_t sm =
+        FLEXPWM_TEST_SUBMODULE;
 
-    const uint16_t val1 =
-        27231U;
+    uint16_t sm_mask =
+        1U << sm;
 
-    const uint16_t val2 =
-        51920U;
-
-    const uint16_t val3 =
-        13616U;
-
-    const uint16_t run_mask =
-        (1U << 0)
-        | (1U << 1)
-        | (1U << 2);
-
-    (void)cycle_time;
     (void)val;
 
-    /*
-     * Peripheral initialization.
-     */
     flexpwm0_clock_setup();
 
-    /*
-     * Match the SDK board initialization's fault-input routing.
-     */
-    flexpwm_inputmux_setup();
-
-    /*
-     * P3_0 -> PWM0_A0, ALT5.
-     */
     pwm_pin_setup(
         FLEXPWM_TEST_PIN,
         FLEXPWM_TEST_MUX);
 
     /*
-     * Stop SM0/1/2 before configuring.
+     * Stop SM0 while configuring.
      */
     pwm->MCTRL &=
-        ~PWM_MCTRL_RUN(run_mask);
+        ~PWM_MCTRL_RUN(sm_mask);
 
-    /*
-     * Clear pending LDOK state.
-     */
     pwm->MCTRL |=
-        PWM_MCTRL_CLDOK(run_mask);
+        PWM_MCTRL_CLDOK(sm_mask);
+
+    uint16_t half_period =
+        timing.period_ticks / 2U;
+
+    uint16_t quarter_period =
+        timing.period_ticks / 4U;
 
     /*
-     * ============================================================
-     * SM0
-     * ============================================================
+     * Independent PWM A.
      *
-     * SDK:
-     *
-     * CTRL2 = 0x8000 before force config
-     * CTRL  = 0x0410
-     *
-     * IPBus clock, /2 prescaler, full-cycle reload.
+     * WAITEN is the important bit we were missing:
+     * keep FlexPWM running while Klipper idles the MCU.
      */
-    pwm->SM[0].CTRL2 =
-        PWM_CTRL2_DBGEN_MASK
-        | PWM_CTRL2_WAITEN_MASK;
-
-    pwm->SM[0].CTRL =
-        PWM_CTRL_PRSC(1U)
-        | PWM_CTRL_FULL_MASK;
-
-    pwm->SM[0].INIT =
-        init;
-
-    pwm->SM[0].VAL0 =
-        0U;
-
-    pwm->SM[0].VAL1 =
-        val1;
-
-    pwm->SM[0].VAL2 =
-        val2;
-
-    pwm->SM[0].VAL3 =
-        val3;
-
-    pwm->SM[0].VAL4 =
-        0U;
-
-    pwm->SM[0].VAL5 =
-        0U;
-
-    /*
-     * SDK deadtime.
-     */
-    pwm->SM[0].DTCNT0 =
-        156U;
-
-    pwm->SM[0].DTCNT1 =
-        156U;
-
-    /*
-     * ============================================================
-     * SM1
-     * ============================================================
-     *
-     * SDK:
-     *
-     * CTRL2 = 0x8202
-     * CTRL  = 0x0400
-     *
-     * SM0 clock + master sync.
-     */
-    pwm->SM[1].CTRL2 =
-        PWM_CTRL2_DBGEN_MASK
-        | PWM_CTRL2_CLK_SEL(2U)
-        | PWM_CTRL2_INIT_SEL(2U);
-
-    pwm->SM[1].CTRL =
-        PWM_CTRL_PRSC(0U)
-        | PWM_CTRL_FULL_MASK;
-
-    pwm->SM[1].INIT =
-        init;
-
-    pwm->SM[1].VAL0 =
-        0U;
-
-    pwm->SM[1].VAL1 =
-        val1;
-
-    pwm->SM[1].VAL2 =
-        val2;
-
-    pwm->SM[1].VAL3 =
-        val3;
-
-    pwm->SM[1].VAL4 =
-        0U;
-
-    pwm->SM[1].VAL5 =
-        0U;
-
-    pwm->SM[1].DTCNT0 =
-        156U;
-
-    pwm->SM[1].DTCNT1 =
-        156U;
-
-    /*
-     * ============================================================
-     * SM2
-     * ============================================================
-     */
-    pwm->SM[2].CTRL2 =
+    pwm->SM[sm].CTRL2 =
         PWM_CTRL2_DBGEN_MASK
         | PWM_CTRL2_WAITEN_MASK
-        | PWM_CTRL2_CLK_SEL(2U)
-        | PWM_CTRL2_INIT_SEL(2U);
+        | PWM_CTRL2_INDEP_MASK;
 
-    pwm->SM[2].CTRL =
-        PWM_CTRL_PRSC(0U)
+    pwm->SM[sm].CTRL =
+        PWM_CTRL_PRSC(timing.prescale)
         | PWM_CTRL_FULL_MASK;
 
-    pwm->SM[2].INIT =
-        init;
+    /*
+     * Signed center-aligned counter:
+     *
+     *     -period/2 ... +(period/2 - 1)
+     */
+    pwm->SM[sm].INIT =
+        (uint16_t)(0U - half_period);
 
-    pwm->SM[2].VAL0 =
+    pwm->SM[sm].VAL0 =
         0U;
 
-    pwm->SM[2].VAL1 =
-        val1;
+    pwm->SM[sm].VAL1 =
+        half_period - 1U;
 
-    pwm->SM[2].VAL2 =
-        val2;
+    flexpwm_set_duty(
+        pwm,
+        sm,
+        timing.period_ticks,
+        val);
 
-    pwm->SM[2].VAL3 =
-        val3;
-
-    pwm->SM[2].VAL4 =
+    /*
+     * PWM B unused.
+     */
+    pwm->SM[sm].VAL4 =
         0U;
 
-    pwm->SM[2].VAL5 =
+    pwm->SM[sm].VAL5 =
         0U;
 
-    pwm->SM[2].DTCNT0 =
-        156U;
+    /*
+     * No deadtime in independent mode.
+     */
+    pwm->SM[sm].DTCNT0 =
+        0U;
 
-    pwm->SM[2].DTCNT1 =
-        156U;
+    pwm->SM[sm].DTCNT1 =
+        0U;
 
     /*
-     * ============================================================
-     * Complementary-mode configuration
-     * ============================================================
-     *
-     * INDEP remains clear on all three submodules.
-     *
-     * IPOL=0 means PWM23 is the complementary source.
+     * Active-high PWM A.
      */
-    pwm->MCTRL &=
-        ~PWM_MCTRL_IPOL(run_mask);
+    pwm->SM[sm].OCTRL &=
+        ~(PWM_OCTRL_POLA_MASK
+          | PWM_OCTRL_PWMAFS_MASK);
 
     /*
-     * Match the SDK fault-output state.
-     *
-     * 0x002A:
-     *
-     *   PWMXFS = High-Z
-     *   PWMBFS = High-Z
-     *   PWMAFS = High-Z
-     *
-     * The SDK readback was 0x802A because PWMA_IN is a live
-     * read-only status bit.
+     * No fault mapping for this test.
      */
-    pwm->SM[0].OCTRL =
-        0x002AU;
+    uint16_t dismap =
+        pwm->SM[sm].DISMAP[0];
 
-    pwm->SM[1].OCTRL =
-        0x002AU;
+    dismap &=
+        ~(PWM_DISMAP_DIS0A_MASK
+          | PWM_DISMAP_DIS0B_MASK
+          | PWM_DISMAP_DIS0X_MASK);
 
-    pwm->SM[2].OCTRL =
-        0x002AU;
+    pwm->SM[sm].DISMAP[0] =
+        dismap;
 
-    /*
-     * Match SDK DISMAP state exactly.
-     */
-    pwm->SM[0].DISMAP[0] =
-        0xFFFFU;
-
-    pwm->SM[1].DISMAP[0] =
-        0xFFFFU;
-
-    pwm->SM[2].DISMAP[0] =
-        0xFFFFU;
-
-    /*
-     * Match known-good SDK fault-controller state.
-     *
-     * Observed:
-     *
-     *   FCTRL  = 65520 = 0xFFF0
-     *   FCTRL2 = 15    = 0x000F
-     *   FSTS   = 240   = 0x00F0
-     */
     pwm->FCTRL =
-        0xFFF0U;
+        0U;
 
     pwm->FCTRL2 =
-        0x000FU;
-
-    /*
-    * Match FLEXPWM_ConfigFaultProtection():
-    *
-    * FFLAG = 0xF written as 1 to clear stale fault flags.
-    * FFULL = 0xF enables full-cycle fault recovery for FAULT0-3.
-    * FHALF = 0.
-    *
-    * Expected readback after the write:
-    *
-    *     FSTS = 0x00F0 = 240
-    */
-    pwm->FSTS =
-        PWM_FSTS_FFLAG(0xFU)
-        | PWM_FSTS_FFULL(0xFU);
-
-    /*
-     * ============================================================
-     * Initial PWM output state
-     * ============================================================
-     *
-     * Match the SDK three-phase example before the force override.
-     */
-    pwm->DTSRCSEL =
-        0U;
-
-    pwm->SWCOUT =
-        0U;
-
-    pwm->MASK =
         0U;
 
     /*
-     * SDK enables A and B for SM0/1/2:
-     *
-     * 0x700 A outputs
-     * 0x070 B outputs
-     * ----------------
-     * 0x770 = 1904
+     * Clear stale fault flags.
      */
-    pwm->OUTEN =
-        PWM_OUTEN_PWMA_EN(run_mask)
-        | PWM_OUTEN_PWMB_EN(run_mask);
+    pwm->FSTS |=
+        PWM_FSTS_FFLAG_MASK;
 
     /*
-     * Commit timing registers for all three submodules.
-     */
-    pwm->MCTRL |=
-        PWM_MCTRL_LDOK(run_mask);
-
-    /*
-     * Start SM0/1/2.
-     */
-    pwm->MCTRL |=
-        PWM_MCTRL_RUN(run_mask);
-
-    /*
-     * ============================================================
-     * Clone the SDK FORCE TEST on SM0
-     * ============================================================
-     */
-
-    /*
-     * Local FORCE_OUT.
-     *
-     * FORCE_SEL = 0
-     * FRCEN     = 0
-     *
-     * PWM23 initial state = HIGH
-     * PWM45 initial state = LOW
-     *
-     * This should give CTRL2=0x9000 after FORCE self-clears.
-     */
-    pwm->SM[0].CTRL2 &=
-        ~(PWM_CTRL2_FORCE_SEL_MASK
-          | PWM_CTRL2_FRCEN_MASK
-          | PWM_CTRL2_PWM45_INIT_MASK);
-
-    pwm->SM[0].CTRL2 |=
-        PWM_CTRL2_PWM23_INIT_MASK;
-
-    /*
-     * SDK force test:
-     *
-     * PWM23 <- software
-     * PWM45 <- software
-     *
-     * => DTSRCSEL = 0x000A
+     * Generated PWM path.
      */
     pwm->DTSRCSEL &=
-        ~(PWM_DTSRCSEL_SM0SEL23_MASK
-          | PWM_DTSRCSEL_SM0SEL45_MASK);
+        ~PWM_DTSRCSEL_SM0SEL23_MASK;
 
     pwm->DTSRCSEL |=
-        PWM_DTSRCSEL_SM0SEL23(2U)
-        | PWM_DTSRCSEL_SM0SEL45(2U);
+        PWM_DTSRCSEL_SM0SEL23(0U);
 
-    /*
-     * PWM23 = HIGH
-     * PWM45 = LOW
-     *
-     * => SWCOUT = 0x0002
-     */
     pwm->SWCOUT &=
-        ~(PWM_SWCOUT_SM0OUT23_MASK
-          | PWM_SWCOUT_SM0OUT45_MASK);
-
-    pwm->SWCOUT |=
-        PWM_SWCOUT_SM0OUT23_MASK;
+        ~PWM_SWCOUT_SM0OUT23_MASK;
 
     /*
-     * Local FORCE_OUT.
-     *
-     * This commits DTSRCSEL, SWCOUT and the buffered IPOL state.
+     * PWM A unmasked and enabled.
      */
-    pwm->SM[0].CTRL2 |=
-        PWM_CTRL2_FORCE_MASK;
+    pwm->MASK &=
+        ~PWM_MASK_MASKA(sm_mask);
+
+    pwm->OUTEN =
+        PWM_OUTEN_PWMA_EN(sm_mask);
+
+    /*
+     * Load timing/compare registers.
+     */
+    pwm->MCTRL |=
+        PWM_MCTRL_LDOK(sm_mask);
+
+    /*
+     * Start SM0.
+     */
+    pwm->MCTRL |=
+        PWM_MCTRL_RUN(sm_mask);
 
     struct gpio_pwm g = {
         .regs = pwm,
-        .hwpwm_ticks = 54464U,
+        .hwpwm_ticks = timing.period_ticks,
         .provider = MCX_PWM_FLEXPWM,
         .channel = FLEXPWM_CHANNEL_A,
-        .submodule = 0U,
+        .submodule = sm,
     };
 
-    /*
-     * ============================================================
-     * Diagnostic readback
-     * ============================================================
-     */
-    output("fpwm sdkclone ctrl2=%u ctrl=%u",
-           pwm->SM[0].CTRL2,
-           pwm->SM[0].CTRL);
+    output("fpwm generated ctrl2=%u ctrl=%u",
+           pwm->SM[sm].CTRL2,
+           pwm->SM[sm].CTRL);
 
-    output("fpwm sdkclone init=%u cnt=%u",
-           pwm->SM[0].INIT,
-           pwm->SM[0].CNT);
+    output("fpwm generated init=%u cnt=%u",
+           pwm->SM[sm].INIT,
+           pwm->SM[sm].CNT);
 
-    output("fpwm sdkclone v1=%u v2=%u v3=%u",
-           pwm->SM[0].VAL1,
-           pwm->SM[0].VAL2,
-           pwm->SM[0].VAL3);
+    output("fpwm generated v1=%u v2=%u v3=%u",
+           pwm->SM[sm].VAL1,
+           pwm->SM[sm].VAL2,
+           pwm->SM[sm].VAL3);
 
-    output("fpwm sdkclone dt0=%u dt1=%u",
-           pwm->SM[0].DTCNT0,
-           pwm->SM[0].DTCNT1);
-
-    output("fpwm sdkclone dtsrc=%u swcout=%u",
-           pwm->DTSRCSEL,
-           pwm->SWCOUT);
-
-    output("fpwm sdkclone outen=%u mask=%u",
+    output("fpwm generated outen=%u mask=%u",
            pwm->OUTEN,
            pwm->MASK);
 
-    output("fpwm sdkclone octrl=%u dismap=%u",
-           pwm->SM[0].OCTRL,
-           pwm->SM[0].DISMAP[0]);
+    output("fpwm generated dtsrc=%u swcout=%u",
+           pwm->DTSRCSEL,
+           pwm->SWCOUT);
 
-    output("fpwm sdkclone fctrl=%u fctrl2=%u fsts=%u",
-           pwm->FCTRL,
-           pwm->FCTRL2,
-           pwm->FSTS);
-
-    output("fpwm sdkclone mctrl=%u mctrl2=%u",
-           pwm->MCTRL,
-           pwm->MCTRL2);
-
-    output("fpwm sdkclone subctl=%u pcr=%u",
+    output("fpwm generated subctl=%u pcr=%u",
            SYSCON->PWM0SUBCTL,
            PORT3->PCR[0]);
 
     return g;
 }
-
 /****************************************************************
  * Public PWM setup API
  ****************************************************************/
@@ -1618,11 +1422,30 @@ void
 gpio_pwm_write(struct gpio_pwm g,
                uint32_t val)
 {
-    /*
-     * Do not let Klipper modify the SDK-clone diagnostic state.
-     */
-    if (g.provider == MCX_PWM_FLEXPWM)
+    if (g.provider == MCX_PWM_FLEXPWM) {
+        PWM_Type *pwm =
+            g.regs;
+
+        uint8_t sm =
+            g.submodule;
+
+        /*
+         * Update the buffered compare registers.
+         */
+        flexpwm_set_duty(
+            pwm,
+            sm,
+            g.hwpwm_ticks,
+            val);
+
+        /*
+         * Transfer VAL2/VAL3 at the next reload opportunity.
+         */
+        pwm->MCTRL |=
+            PWM_MCTRL_LDOK(1U << sm);
+
         return;
+    }
 
     if (g.provider == MCX_PWM_CTIMER) {
         CTIMER_Type *timer =
