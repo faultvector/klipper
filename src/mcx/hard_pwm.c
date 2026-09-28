@@ -860,21 +860,24 @@ struct flexpwm_timing {
  * pinmux configuration and output behavior on hardware.
  */
 static const struct flexpwm_pwm_route flexpwm_routes[] = {
-    /*
-     * P3_0
-     *   ALT5
-     *   FLEXPWM0_A0
-     */
     {
         .pin = GPIO(3, 0),
         .submodule = 0U,
         .channel = FLEXPWM_CHANNEL_A,
         .mux = 5U,
     },
+
     {
         .pin = GPIO(4, 0),
         .submodule = 3U,
         .channel = FLEXPWM_CHANNEL_A,
+        .mux = 5U,
+    },
+
+    {
+        .pin = GPIO(4, 1),
+        .submodule = 3U,
+        .channel = FLEXPWM_CHANNEL_B,
         .mux = 5U,
     },
 };
@@ -1052,6 +1055,7 @@ flexpwm_get_timing(uint32_t cycle_time)
 static void
 flexpwm_set_duty(PWM_Type *pwm,
                  uint8_t sm,
+                 uint8_t channel,
                  uint16_t period_ticks,
                  uint32_t val)
 {
@@ -1061,47 +1065,55 @@ flexpwm_set_duty(PWM_Type *pwm,
     uint16_t half_period =
         period_ticks / 2U;
 
+    uint16_t rising;
+    uint16_t falling;
+
     if (val == 0U) {
-        /*
-         * Zero-width pulse.
-         */
-        pwm->SM[sm].VAL2 =
-            0U;
-
-        pwm->SM[sm].VAL3 =
-            0U;
-
-        return;
-    }
-
-    if (val == MAX_PWM) {
-        /*
-         * Cover the entire signed center-aligned counter range.
-         */
-        pwm->SM[sm].VAL2 =
+        rising = 0U;
+        falling = 0U;
+    } else if (val == MAX_PWM) {
+        rising =
             (uint16_t)(0U - half_period);
 
-        pwm->SM[sm].VAL3 =
+        falling =
             half_period;
+    } else {
+        uint32_t high_ticks =
+            ((uint64_t)period_ticks * val
+             + MAX_PWM / 2U)
+            / MAX_PWM;
 
-        return;
+        uint16_t half_high =
+            (uint16_t)(high_ticks / 2U);
+
+        rising =
+            (uint16_t)(0U - half_high);
+
+        falling =
+            half_high;
     }
 
-    uint32_t high_ticks =
-        ((uint64_t)period_ticks * val
-         + MAX_PWM / 2U)
-        / MAX_PWM;
+    switch (channel) {
+    case FLEXPWM_CHANNEL_A:
+        pwm->SM[sm].VAL2 =
+            rising;
 
-    uint16_t half_high =
-        (uint16_t)(high_ticks / 2U);
+        pwm->SM[sm].VAL3 =
+            falling;
+        break;
 
-    pwm->SM[sm].VAL2 =
-        (uint16_t)(0U - half_high);
+    case FLEXPWM_CHANNEL_B:
+        pwm->SM[sm].VAL4 =
+            rising;
 
-    pwm->SM[sm].VAL3 =
-        half_high;
+        pwm->SM[sm].VAL5 =
+            falling;
+        break;
+
+    default:
+        shutdown("Unsupported FlexPWM channel");
+    }
 }
-
 
 /****************************************************************
  * FlexPWM setup
@@ -1124,11 +1136,12 @@ flexpwm_pwm_setup(const struct flexpwm_pwm_route *route,
     uint16_t sm_mask =
         1U << sm;
 
-    if (route->channel != FLEXPWM_CHANNEL_A)
-        shutdown("Unsupported FlexPWM channel");
-
     if (sm > 3U)
         shutdown("Invalid FlexPWM submodule");
+
+    if (route->channel != FLEXPWM_CHANNEL_A
+        && route->channel != FLEXPWM_CHANNEL_B)
+        shutdown("Unsupported FlexPWM channel");
 
     flexpwm0_clock_setup();
 
@@ -1137,141 +1150,106 @@ flexpwm_pwm_setup(const struct flexpwm_pwm_route *route,
         route->mux);
 
     /*
-     * Stop only the submodule being configured.
-     */
-    pwm->MCTRL &=
-        ~PWM_MCTRL_RUN(sm_mask);
-
-    /*
-     * Clear this submodule's buffered-load state.
-     */
-    pwm->MCTRL |=
-        PWM_MCTRL_CLDOK(sm_mask);
-
-    uint16_t half_period =
-        timing.period_ticks / 2U;
-
-    /*
-     * Independent PWM A.
+     * Only stop the submodule if it is not already running.
      *
-     * WAITEN keeps FlexPWM running while Klipper idles the core.
+     * A and B share the same counter, so if the other output on this
+     * submodule is already active we must preserve the timing domain.
      */
-    pwm->SM[sm].CTRL2 =
-        PWM_CTRL2_DBGEN_MASK
-        | PWM_CTRL2_WAITEN_MASK
-        | PWM_CTRL2_INDEP_MASK;
+    uint8_t running =
+        !!(pwm->MCTRL & PWM_MCTRL_RUN(sm_mask));
 
-    pwm->SM[sm].CTRL =
-        PWM_CTRL_PRSC(timing.prescale)
-        | PWM_CTRL_FULL_MASK;
+    if (!running) {
+        pwm->MCTRL &=
+            ~PWM_MCTRL_RUN(sm_mask);
+
+        pwm->MCTRL |=
+            PWM_MCTRL_CLDOK(sm_mask);
+
+        uint16_t half_period =
+            timing.period_ticks / 2U;
+
+        pwm->SM[sm].CTRL2 =
+            PWM_CTRL2_DBGEN_MASK
+            | PWM_CTRL2_WAITEN_MASK
+            | PWM_CTRL2_INDEP_MASK;
+
+        pwm->SM[sm].CTRL =
+            PWM_CTRL_PRSC(timing.prescale)
+            | PWM_CTRL_FULL_MASK;
+
+        pwm->SM[sm].INIT =
+            (uint16_t)(0U - half_period);
+
+        pwm->SM[sm].VAL0 =
+            0U;
+
+        pwm->SM[sm].VAL1 =
+            half_period - 1U;
+
+        pwm->SM[sm].DTCNT0 =
+            0U;
+
+        pwm->SM[sm].DTCNT1 =
+            0U;
+
+        pwm->SM[sm].DISMAP[0] &=
+            ~(PWM_DISMAP_DIS0A_MASK
+              | PWM_DISMAP_DIS0B_MASK
+              | PWM_DISMAP_DIS0X_MASK);
+
+        pwm->DTSRCSEL &=
+            ~flexpwm_dtsrcsel_23_mask(sm);
+
+        pwm->SWCOUT &=
+            ~flexpwm_swcout_23_mask(sm);
+    }
 
     /*
-     * Center-aligned signed counter:
+     * A and B on one submodule necessarily share frequency.
      *
-     *     -period/2 ... +(period/2 - 1)
-     */
-    pwm->SM[sm].INIT =
-        (uint16_t)(0U - half_period);
-
-    pwm->SM[sm].VAL0 =
-        0U;
-
-    pwm->SM[sm].VAL1 =
-        half_period - 1U;
-
-    /*
-     * Configure PWM A duty.
+     * For this first test, configure both for the same cycle_time.
      */
     flexpwm_set_duty(
         pwm,
         sm,
+        route->channel,
         timing.period_ticks,
         val);
 
-    /*
-     * PWM B unused.
-     */
-    pwm->SM[sm].VAL4 =
-        0U;
+    if (route->channel == FLEXPWM_CHANNEL_A) {
+        pwm->SM[sm].OCTRL &=
+            ~(PWM_OCTRL_POLA_MASK
+              | PWM_OCTRL_PWMAFS_MASK);
 
-    pwm->SM[sm].VAL5 =
-        0U;
+        pwm->MASK &=
+            ~PWM_MASK_MASKA(sm_mask);
 
-    /*
-     * No deadtime in independent mode.
-     */
-    pwm->SM[sm].DTCNT0 =
-        0U;
+        pwm->OUTEN |=
+            PWM_OUTEN_PWMA_EN(sm_mask);
+    } else {
+        pwm->SM[sm].OCTRL &=
+            ~(PWM_OCTRL_POLB_MASK
+              | PWM_OCTRL_PWMBFS_MASK);
 
-    pwm->SM[sm].DTCNT1 =
-        0U;
+        pwm->MASK &=
+            ~PWM_MASK_MASKB(sm_mask);
 
-    /*
-     * Active-high PWM A.
-     */
-    pwm->SM[sm].OCTRL &=
-        ~(PWM_OCTRL_POLA_MASK
-          | PWM_OCTRL_PWMAFS_MASK);
+        pwm->OUTEN |=
+            PWM_OUTEN_PWMB_EN(sm_mask);
+    }
 
-    /*
-     * Do not map fault inputs to this submodule.
-     */
-    uint16_t dismap =
-        pwm->SM[sm].DISMAP[0];
-
-    dismap &=
-        ~(PWM_DISMAP_DIS0A_MASK
-          | PWM_DISMAP_DIS0B_MASK
-          | PWM_DISMAP_DIS0X_MASK);
-
-    pwm->SM[sm].DISMAP[0] =
-        dismap;
-
-    /*
-     * Fault processing is unused by this provider.
-     */
     pwm->FCTRL =
         0U;
 
     pwm->FCTRL2 =
         0U;
 
-    /*
-     * Clear stale fault flags.
-     */
     pwm->FSTS |=
         PWM_FSTS_FFLAG_MASK;
 
-    /*
-     * Select generated PWM23 output for this specific submodule.
-     */
-    pwm->DTSRCSEL &=
-        ~flexpwm_dtsrcsel_23_mask(sm);
-
-    pwm->SWCOUT &=
-        ~flexpwm_swcout_23_mask(sm);
-
-    /*
-     * Unmask PWM A for this submodule.
-     */
-    pwm->MASK &=
-        ~PWM_MASK_MASKA(sm_mask);
-
-    /*
-     * Enable PWM A without disturbing any other active submodules.
-     */
-    pwm->OUTEN |=
-        PWM_OUTEN_PWMA_EN(sm_mask);
-
-    /*
-     * Commit this submodule's buffered timing/compare registers.
-     */
     pwm->MCTRL |=
         PWM_MCTRL_LDOK(sm_mask);
 
-    /*
-     * Start this submodule.
-     */
     pwm->MCTRL |=
         PWM_MCTRL_RUN(sm_mask);
 
@@ -1285,8 +1263,6 @@ flexpwm_pwm_setup(const struct flexpwm_pwm_route *route,
 
     return g;
 }
-
-
 /****************************************************************
  * Public PWM setup API
  ****************************************************************/
@@ -1328,18 +1304,13 @@ gpio_pwm_write(struct gpio_pwm g,
         uint8_t sm =
             g.submodule;
 
-        /*
-         * Update the buffered compare registers.
-         */
         flexpwm_set_duty(
             pwm,
             sm,
+            g.channel,
             g.hwpwm_ticks,
             val);
 
-        /*
-         * Transfer VAL2/VAL3 at the next reload opportunity.
-         */
         pwm->MCTRL |=
             PWM_MCTRL_LDOK(1U << sm);
 
@@ -1367,3 +1338,4 @@ gpio_pwm_write(struct gpio_pwm g,
 
     shutdown("Invalid PWM provider");
 }
+
