@@ -24,19 +24,6 @@ DECL_CONSTANT("PWM_MAX", MAX_PWM);
 #define MCX_PWM_FLEXPWM  1U
 
 
-/*
- * Test-C bring-up gate.
- *
- * This is intentionally zero-initialized.
- *
- * Declaring it volatile prevents the compiler/LTO from proving that
- * the FlexPWM path is unreachable and discarding the implementation.
- *
- * Leave this at zero for test C.
- */
-static volatile uint8_t flexpwm_test_enable = 1U;
-
-
 /****************************************************************
  * CTIMER resources
  ****************************************************************/
@@ -310,7 +297,8 @@ ctimer_reload_bit(uint8_t channel)
 static void
 ctimer_clock_setup(uint8_t index)
 {
-    uint32_t clkunlock = SYSCON->CLKUNLOCK;
+    uint32_t clkunlock =
+        SYSCON->CLKUNLOCK;
 
     SYSCON->CLKUNLOCK =
         clkunlock & ~SYSCON_CLKUNLOCK_UNLOCK_MASK;
@@ -328,7 +316,8 @@ ctimer_clock_setup(uint8_t index)
      *
      * clock.c configures FRO_LF_DIV as /1 from FRO12M.
      */
-    *ctimer_clksel[index] = 0U;
+    *ctimer_clksel[index] =
+        0U;
 
     /*
      * CTIMER functional divider = /1.
@@ -342,7 +331,8 @@ ctimer_clock_setup(uint8_t index)
     *ctimer_clkdiv[index] =
         MRCC_MRCC_CTIMER0_CLKDIV_HALT_MASK;
 
-    *ctimer_clkdiv[index] = 0U;
+    *ctimer_clkdiv[index] =
+        0U;
 
     /*
      * Match NXP's RESET_PeripheralReset() sequence:
@@ -356,7 +346,8 @@ ctimer_clock_setup(uint8_t index)
     MRCC0->MRCC_GLB_RST0_SET =
         ctimer_reset_masks[index];
 
-    SYSCON->CLKUNLOCK = clkunlock;
+    SYSCON->CLKUNLOCK =
+        clkunlock;
 }
 
 
@@ -393,16 +384,19 @@ pwm_pin_setup(uint32_t pin,
         clkunlock;
 
     /*
-     * NXP-generated FRDM-MCXA366 configuration:
-     *   ALT5
-     *   fast slew
-     *   input buffer enabled
-     *   no pull/open-drain/inversion
+     * NXP-generated MCXA366 configuration:
+     *
+     *     fast slew
+     *     input buffer enabled
+     *     no pull
+     *     no open drain
+     *     no inversion
      */
     port_regs[port]->PCR[pin_num] =
         PORT_PCR_MUX(mux)
         | PORT_PCR_IBE_MASK;
 }
+
 
 /****************************************************************
  * CTIMER timing conversion
@@ -430,7 +424,8 @@ cycle_time_to_ctimer_ticks(uint32_t cycle_time)
 
 
 static uint32_t
-ctimer_pulse_ticks(uint32_t period_ticks, uint32_t val)
+ctimer_pulse_ticks(uint32_t period_ticks,
+                   uint32_t val)
 {
     if (val > MAX_PWM)
         val = MAX_PWM;
@@ -471,7 +466,9 @@ ctimer_find_period_channel(uint8_t output_mask,
      * This preserves the familiar MAT3-period arrangement whenever
      * MAT3 itself is not needed as an output.
      */
-    for (int channel = 3; channel >= 0; channel--) {
+    for (int channel = 3;
+         channel >= 0;
+         channel--) {
         if ((uint8_t)channel == requested_output)
             continue;
 
@@ -521,7 +518,8 @@ ctimer_move_period_channel(uint8_t timer_index,
      * Both match registers contain the same period value, so this does
      * not alter the PWM frequency.
      */
-    uint32_t mcr = timer->MCR;
+    uint32_t mcr =
+        timer->MCR;
 
     mcr &=
         ~ctimer_reset_bit(old_channel);
@@ -532,7 +530,8 @@ ctimer_move_period_channel(uint8_t timer_index,
     mcr |=
         ctimer_reset_bit(new_channel);
 
-    timer->MCR = mcr;
+    timer->MCR =
+        mcr;
 
     state->period_channel =
         new_channel;
@@ -589,7 +588,8 @@ ctimer_route_available(const struct ctimer_pwm_route *route,
 
 
 static const struct ctimer_pwm_route *
-ctimer_find_route(uint8_t pin, uint32_t period_ticks)
+ctimer_find_route(uint8_t pin,
+                  uint32_t period_ticks)
 {
     /*
      * First preference:
@@ -598,7 +598,7 @@ ctimer_find_route(uint8_t pin, uint32_t period_ticks)
      * period. This preserves unused CTIMER instances for outputs that
      * need different frequencies.
      */
-    for (uint32_t i = 0;
+    for (uint32_t i = 0U;
          i < ARRAY_SIZE(ctimer_routes);
          i++) {
         const struct ctimer_pwm_route *route =
@@ -622,7 +622,7 @@ ctimer_find_route(uint8_t pin, uint32_t period_ticks)
      *
      * Allocate a previously-unused CTIMER instance.
      */
-    for (uint32_t i = 0;
+    for (uint32_t i = 0U;
          i < ARRAY_SIZE(ctimer_routes);
          i++) {
         const struct ctimer_pwm_route *route =
@@ -677,12 +677,23 @@ ctimer_initialize(uint8_t timer_index,
     timer->TCR =
         CTIMER_TCR_CRST_MASK;
 
-    timer->CTCR = 0U;
-    timer->PR = 0U;
-    timer->PC = 0U;
-    timer->TC = 0U;
-    timer->MCR = 0U;
-    timer->PWMC = 0U;
+    timer->CTCR =
+        0U;
+
+    timer->PR =
+        0U;
+
+    timer->PC =
+        0U;
+
+    timer->TC =
+        0U;
+
+    timer->MCR =
+        0U;
+
+    timer->PWMC =
+        0U;
 
     timer->MR[period_channel] =
         period_ticks - 1U;
@@ -708,7 +719,8 @@ ctimer_initialize(uint8_t timer_index,
     /*
      * Release counter reset, but do not start yet.
      */
-    timer->TCR = 0U;
+    timer->TCR =
+        0U;
 }
 
 
@@ -725,7 +737,9 @@ ctimer_pwm_setup(uint8_t pin,
         cycle_time_to_ctimer_ticks(cycle_time);
 
     const struct ctimer_pwm_route *route =
-        ctimer_find_route(pin, period_ticks);
+        ctimer_find_route(
+            pin,
+            period_ticks);
 
     if (!route)
         shutdown("PWM pin shares CTIMER with a different cycle time");
@@ -817,28 +831,20 @@ ctimer_pwm_setup(uint8_t pin,
 
 
 /****************************************************************
- * FlexPWM first-light resources
+ * FlexPWM resources
  ****************************************************************/
 
-/*
- * First known FlexPWM route:
- *
- *     P3_0
- *       -> ALT5
- *       -> FLEXPWM0
- *       -> submodule 0
- *       -> PWM A
- *
- * For test C this route remains disabled by flexpwm_test_enable.
- */
-#define FLEXPWM_TEST_PIN          GPIO(3, 0)
-#define FLEXPWM_TEST_MUX          5U
-#define FLEXPWM_TEST_SUBMODULE    0U
+#define FLEXPWM_CHANNEL_X 0U
+#define FLEXPWM_CHANNEL_B 1U
+#define FLEXPWM_CHANNEL_A 2U
 
 
-#define FLEXPWM_CHANNEL_X         0U
-#define FLEXPWM_CHANNEL_B         1U
-#define FLEXPWM_CHANNEL_A         2U
+struct flexpwm_pwm_route {
+    uint8_t pin;
+    uint8_t submodule;
+    uint8_t channel;
+    uint8_t mux;
+};
 
 
 struct flexpwm_timing {
@@ -847,7 +853,96 @@ struct flexpwm_timing {
 };
 
 
+/*
+ * Verified MCXA366VLQ FlexPWM routes.
+ *
+ * Additional routes should be added after confirming both their
+ * pinmux configuration and output behavior on hardware.
+ */
+static const struct flexpwm_pwm_route flexpwm_routes[] = {
+    /*
+     * P3_0
+     *   ALT5
+     *   FLEXPWM0_A0
+     */
+    {
+        .pin = GPIO(3, 0),
+        .submodule = 0U,
+        .channel = FLEXPWM_CHANNEL_A,
+        .mux = 5U,
+    },
+    {
+        .pin = GPIO(4, 0),
+        .submodule = 3U,
+        .channel = FLEXPWM_CHANNEL_A,
+        .mux = 5U,
+    },
+};
+
+
 static uint8_t flexpwm0_initialized;
+
+
+static uint16_t
+flexpwm_dtsrcsel_23_mask(uint8_t sm)
+{
+    switch (sm) {
+    case 0U:
+        return PWM_DTSRCSEL_SM0SEL23_MASK;
+
+    case 1U:
+        return PWM_DTSRCSEL_SM1SEL23_MASK;
+
+    case 2U:
+        return PWM_DTSRCSEL_SM2SEL23_MASK;
+
+    case 3U:
+        return PWM_DTSRCSEL_SM3SEL23_MASK;
+
+    default:
+        shutdown("Invalid FlexPWM submodule");
+    }
+}
+
+
+static uint16_t
+flexpwm_swcout_23_mask(uint8_t sm)
+{
+    switch (sm) {
+    case 0U:
+        return PWM_SWCOUT_SM0OUT23_MASK;
+
+    case 1U:
+        return PWM_SWCOUT_SM1OUT23_MASK;
+
+    case 2U:
+        return PWM_SWCOUT_SM2OUT23_MASK;
+
+    case 3U:
+        return PWM_SWCOUT_SM3OUT23_MASK;
+
+    default:
+        shutdown("Invalid FlexPWM submodule");
+    }
+}
+
+
+/****************************************************************
+ * FlexPWM route lookup
+ ****************************************************************/
+
+static const struct flexpwm_pwm_route *
+flexpwm_find_route(uint8_t pin)
+{
+    for (uint32_t i = 0U;
+         i < ARRAY_SIZE(flexpwm_routes);
+         i++) {
+        if (flexpwm_routes[i].pin == pin)
+            return &flexpwm_routes[i];
+    }
+
+    return NULL;
+}
 
 
 /****************************************************************
@@ -881,7 +976,8 @@ flexpwm0_clock_setup(void)
     /*
      * Match FLEXPWM_Init():
      *
-     * enable all four submodule clocks before releasing reset.
+     * Enable all four FlexPWM submodule clocks before releasing
+     * peripheral reset.
      */
     SYSCON->PWM0SUBCTL |=
         SYSCON_PWM0SUBCTL_CLK0_EN_MASK
@@ -902,6 +998,7 @@ flexpwm0_clock_setup(void)
         1U;
 }
 
+
 /****************************************************************
  * FlexPWM timing conversion
  ****************************************************************/
@@ -910,8 +1007,8 @@ static struct flexpwm_timing
 flexpwm_get_timing(uint32_t cycle_time)
 {
     /*
-     * FLEXPWM0 IPBus clock is running at the full 240 MHz system
-     * clock on MCXA366.
+     * FLEXPWM0 IPBus clock runs at the full 240 MHz system clock
+     * on the MCXA366.
      */
     uint32_t source_clock =
         mcx_get_fro_hf_frequency();
@@ -924,7 +1021,6 @@ flexpwm_get_timing(uint32_t cycle_time)
     for (uint8_t prescale = 0U;
          prescale <= 7U;
          prescale++) {
-
         uint32_t divider =
             1U << prescale;
 
@@ -948,193 +1044,10 @@ flexpwm_get_timing(uint32_t cycle_time)
     shutdown("FlexPWM cycle time too long");
 }
 
+
 /****************************************************************
  * FlexPWM duty conversion
  ****************************************************************/
-
-static uint16_t
-flexpwm_high_ticks(uint32_t period_ticks,
-                   uint32_t val)
-{
-    if (val > MAX_PWM)
-        val = MAX_PWM;
-
-    uint64_t high_ticks =
-        ((uint64_t)period_ticks * val
-         + MAX_PWM / 2U)
-        / MAX_PWM;
-
-    if (high_ticks > period_ticks)
-        high_ticks = period_ticks;
-
-    return (uint16_t)high_ticks;
-}
-
-
-/****************************************************************
- * FlexPWM first-light setup
- ****************************************************************/
-
-static void
-flexpwm_inputmux_setup(void)
-{
-    uint32_t clkunlock =
-        SYSCON->CLKUNLOCK;
-
-    SYSCON->CLKUNLOCK =
-        clkunlock & ~SYSCON_CLKUNLOCK_UNLOCK_MASK;
-
-    /*
-     * Enable INPUTMUX0.
-     */
-    MRCC0->MRCC_GLB_CC0_SET =
-        MRCC_MRCC_GLB_CC0_INPUTMUX0_MASK;
-
-    /*
-     * Reset INPUTMUX0.
-     */
-    MRCC0->MRCC_GLB_RST0_CLR =
-        MRCC_MRCC_GLB_RST0_INPUTMUX0_MASK;
-
-    MRCC0->MRCC_GLB_RST0_SET =
-        MRCC_MRCC_GLB_RST0_INPUTMUX0_MASK;
-
-    SYSCON->CLKUNLOCK =
-        clkunlock;
-
-    /*
-     * Match the FRDM-MCXA366 SDK PWM example exactly:
-     *
-     * TRIG_IN2  -> FLEXPWM0 FAULT0
-     * TRIG_IN3  -> FLEXPWM0 FAULT1
-     * TRIG_IN4  -> FLEXPWM0 FAULT2
-     * TRIG_IN10 -> FLEXPWM0 FAULT3
-     */
-    *(volatile uint32_t *)0x400013c0U =
-        22U;
-
-    *(volatile uint32_t *)0x400013c4U =
-        23U;
-
-    *(volatile uint32_t *)0x400013c8U =
-        24U;
-
-    *(volatile uint32_t *)0x400013ccU =
-        30U;
-}
-
-static void
-flexpwm_dump_inputmux(void)
-{
-    volatile uint32_t *fault0 =
-        (volatile uint32_t *)0x400013c0U;
-
-    volatile uint32_t *fault1 =
-        (volatile uint32_t *)0x400013c4U;
-
-    volatile uint32_t *fault2 =
-        (volatile uint32_t *)0x400013c8U;
-
-    volatile uint32_t *fault3 =
-        (volatile uint32_t *)0x400013ccU;
-
-    output("fpwm imux f0=%u f1=%u f2=%u f3=%u",
-           *fault0,
-           *fault1,
-           *fault2,
-           *fault3);
-}
-
-static void
-flexpwm_dump_full(void)
-{
-    PWM_Type *pwm =
-        FLEXPWM0;
-
-    output("FPREG fault1 fctrl=%u fsts=%u ffilt=%u",
-           pwm->FCTRL,
-           pwm->FSTS,
-           pwm->FFILT);
-
-    output("FPREG fault2 ftst=%u fctrl2=%u dismap=%u",
-           pwm->FTST,
-           pwm->FCTRL2,
-           pwm->SM[0].DISMAP[0]);
-
-    output("FPREG system subctl=%u pcr=%u",
-           SYSCON->PWM0SUBCTL,
-           PORT3->PCR[0]);
-}
-
-static void
-flexpwm_dump_state(uint32_t tag)
-{
-    PWM_Type *pwm =
-        FLEXPWM0;
-
-    uint8_t sm =
-        FLEXPWM_TEST_SUBMODULE;
-
-    output("fpwm tag=%u ctrl2=%u ctrl=%u",
-           tag,
-           pwm->SM[sm].CTRL2,
-           pwm->SM[sm].CTRL);
-
-    output("fpwm tag=%u init=%u cnt=%u",
-           tag,
-           pwm->SM[sm].INIT,
-           pwm->SM[sm].CNT);
-
-    output("fpwm tag=%u v0=%u v1=%u",
-           tag,
-           pwm->SM[sm].VAL0,
-           pwm->SM[sm].VAL1);
-
-    output("fpwm tag=%u v2=%u v3=%u",
-           tag,
-           pwm->SM[sm].VAL2,
-           pwm->SM[sm].VAL3);
-
-    output("fpwm tag=%u octrl=%u outen=%u",
-           tag,
-           pwm->SM[sm].OCTRL,
-           pwm->OUTEN);
-
-    output("fpwm tag=%u mask=%u dtsrc=%u",
-           tag,
-           pwm->MASK,
-           pwm->DTSRCSEL);
-
-    output("fpwm tag=%u mctrl=%u fsts=%u",
-           tag,
-           pwm->MCTRL,
-           pwm->FSTS);
-
-    output("fpwm tag=%u subctl=%u",
-           tag,
-           SYSCON->PWM0SUBCTL);
-
-    output("fpwm tag=%u dismap=%u dt0=%u",
-           tag,
-           pwm->SM[sm].DISMAP[0],
-           pwm->SM[sm].DTCNT0);
-
-    output("fpwm tag=%u fctrl=%u fctrl2=%u",
-           tag,
-           pwm->FCTRL,
-           pwm->FCTRL2);
-
-    output("fpwm tag=%u pcr=%u",
-           tag,
-           PORT3->PCR[0]);
-
-    output("fpwm tag=%u sts=%u",
-           tag,
-           pwm->SM[sm].STS);
-
-    output("fpwm swtest pddr=%u",
-        GPIO3->PDDR);
-}
 
 static void
 flexpwm_set_duty(PWM_Type *pwm,
@@ -1163,7 +1076,7 @@ flexpwm_set_duty(PWM_Type *pwm,
 
     if (val == MAX_PWM) {
         /*
-         * Cover the entire counter range.
+         * Cover the entire signed center-aligned counter range.
          */
         pwm->SM[sm].VAL2 =
             (uint16_t)(0U - half_period);
@@ -1190,9 +1103,14 @@ flexpwm_set_duty(PWM_Type *pwm,
 }
 
 
+/****************************************************************
+ * FlexPWM setup
+ ****************************************************************/
+
 static struct gpio_pwm
-flexpwm_setup_p3_0(uint32_t cycle_time,
-                   uint32_t val)
+flexpwm_pwm_setup(const struct flexpwm_pwm_route *route,
+                  uint32_t cycle_time,
+                  uint32_t val)
 {
     struct flexpwm_timing timing =
         flexpwm_get_timing(cycle_time);
@@ -1201,39 +1119,42 @@ flexpwm_setup_p3_0(uint32_t cycle_time,
         FLEXPWM0;
 
     uint8_t sm =
-        FLEXPWM_TEST_SUBMODULE;
+        route->submodule;
 
     uint16_t sm_mask =
         1U << sm;
 
-    (void)val;
+    if (route->channel != FLEXPWM_CHANNEL_A)
+        shutdown("Unsupported FlexPWM channel");
+
+    if (sm > 3U)
+        shutdown("Invalid FlexPWM submodule");
 
     flexpwm0_clock_setup();
 
     pwm_pin_setup(
-        FLEXPWM_TEST_PIN,
-        FLEXPWM_TEST_MUX);
+        route->pin,
+        route->mux);
 
     /*
-     * Stop SM0 while configuring.
+     * Stop only the submodule being configured.
      */
     pwm->MCTRL &=
         ~PWM_MCTRL_RUN(sm_mask);
 
+    /*
+     * Clear this submodule's buffered-load state.
+     */
     pwm->MCTRL |=
         PWM_MCTRL_CLDOK(sm_mask);
 
     uint16_t half_period =
         timing.period_ticks / 2U;
 
-    uint16_t quarter_period =
-        timing.period_ticks / 4U;
-
     /*
      * Independent PWM A.
      *
-     * WAITEN is the important bit we were missing:
-     * keep FlexPWM running while Klipper idles the MCU.
+     * WAITEN keeps FlexPWM running while Klipper idles the core.
      */
     pwm->SM[sm].CTRL2 =
         PWM_CTRL2_DBGEN_MASK
@@ -1245,7 +1166,7 @@ flexpwm_setup_p3_0(uint32_t cycle_time,
         | PWM_CTRL_FULL_MASK;
 
     /*
-     * Signed center-aligned counter:
+     * Center-aligned signed counter:
      *
      *     -period/2 ... +(period/2 - 1)
      */
@@ -1258,6 +1179,9 @@ flexpwm_setup_p3_0(uint32_t cycle_time,
     pwm->SM[sm].VAL1 =
         half_period - 1U;
 
+    /*
+     * Configure PWM A duty.
+     */
     flexpwm_set_duty(
         pwm,
         sm,
@@ -1290,7 +1214,7 @@ flexpwm_setup_p3_0(uint32_t cycle_time,
           | PWM_OCTRL_PWMAFS_MASK);
 
     /*
-     * No fault mapping for this test.
+     * Do not map fault inputs to this submodule.
      */
     uint16_t dismap =
         pwm->SM[sm].DISMAP[0];
@@ -1303,6 +1227,9 @@ flexpwm_setup_p3_0(uint32_t cycle_time,
     pwm->SM[sm].DISMAP[0] =
         dismap;
 
+    /*
+     * Fault processing is unused by this provider.
+     */
     pwm->FCTRL =
         0U;
 
@@ -1316,34 +1243,34 @@ flexpwm_setup_p3_0(uint32_t cycle_time,
         PWM_FSTS_FFLAG_MASK;
 
     /*
-     * Generated PWM path.
+     * Select generated PWM23 output for this specific submodule.
      */
     pwm->DTSRCSEL &=
-        ~PWM_DTSRCSEL_SM0SEL23_MASK;
-
-    pwm->DTSRCSEL |=
-        PWM_DTSRCSEL_SM0SEL23(0U);
+        ~flexpwm_dtsrcsel_23_mask(sm);
 
     pwm->SWCOUT &=
-        ~PWM_SWCOUT_SM0OUT23_MASK;
+        ~flexpwm_swcout_23_mask(sm);
 
     /*
-     * PWM A unmasked and enabled.
+     * Unmask PWM A for this submodule.
      */
     pwm->MASK &=
         ~PWM_MASK_MASKA(sm_mask);
 
-    pwm->OUTEN =
+    /*
+     * Enable PWM A without disturbing any other active submodules.
+     */
+    pwm->OUTEN |=
         PWM_OUTEN_PWMA_EN(sm_mask);
 
     /*
-     * Load timing/compare registers.
+     * Commit this submodule's buffered timing/compare registers.
      */
     pwm->MCTRL |=
         PWM_MCTRL_LDOK(sm_mask);
 
     /*
-     * Start SM0.
+     * Start this submodule.
      */
     pwm->MCTRL |=
         PWM_MCTRL_RUN(sm_mask);
@@ -1352,37 +1279,14 @@ flexpwm_setup_p3_0(uint32_t cycle_time,
         .regs = pwm,
         .hwpwm_ticks = timing.period_ticks,
         .provider = MCX_PWM_FLEXPWM,
-        .channel = FLEXPWM_CHANNEL_A,
+        .channel = route->channel,
         .submodule = sm,
     };
 
-    output("fpwm generated ctrl2=%u ctrl=%u",
-           pwm->SM[sm].CTRL2,
-           pwm->SM[sm].CTRL);
-
-    output("fpwm generated init=%u cnt=%u",
-           pwm->SM[sm].INIT,
-           pwm->SM[sm].CNT);
-
-    output("fpwm generated v1=%u v2=%u v3=%u",
-           pwm->SM[sm].VAL1,
-           pwm->SM[sm].VAL2,
-           pwm->SM[sm].VAL3);
-
-    output("fpwm generated outen=%u mask=%u",
-           pwm->OUTEN,
-           pwm->MASK);
-
-    output("fpwm generated dtsrc=%u swcout=%u",
-           pwm->DTSRCSEL,
-           pwm->SWCOUT);
-
-    output("fpwm generated subctl=%u pcr=%u",
-           SYSCON->PWM0SUBCTL,
-           PORT3->PCR[0]);
-
     return g;
 }
+
+
 /****************************************************************
  * Public PWM setup API
  ****************************************************************/
@@ -1392,17 +1296,12 @@ gpio_pwm_setup(uint8_t pin,
                uint32_t cycle_time,
                uint32_t val)
 {
-    /*
-     * Test C:
-     *
-     * Keep the FlexPWM implementation linked into the firmware, but
-     * prevent it from executing.
-     *
-     * flexpwm_test_enable is volatile and zero-initialized.
-     */
-    if (flexpwm_test_enable
-        && pin == FLEXPWM_TEST_PIN) {
-        return flexpwm_setup_p3_0(
+    const struct flexpwm_pwm_route *flex_route =
+        flexpwm_find_route(pin);
+
+    if (flex_route) {
+        return flexpwm_pwm_setup(
+            flex_route,
             cycle_time,
             val);
     }
