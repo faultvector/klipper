@@ -368,6 +368,9 @@ pwm_pin_setup(uint32_t pin,
     if (port >= ARRAY_SIZE(port_regs))
         shutdown("Invalid PWM pin port");
 
+    if (pin_num >= 32U)
+        shutdown("Invalid PWM pin number");
+
     uint32_t clkunlock =
         SYSCON->CLKUNLOCK;
 
@@ -402,8 +405,9 @@ pwm_pin_setup(uint32_t pin,
  * CTIMER timing conversion
  ****************************************************************/
 
-static uint32_t
-cycle_time_to_ctimer_ticks(uint32_t cycle_time)
+static int
+cycle_time_to_ctimer_ticks(uint32_t cycle_time,
+                           uint32_t *period_ticks)
 {
     uint32_t timer_clock =
         mcx_get_fro_lf_frequency();
@@ -416,10 +420,23 @@ cycle_time_to_ctimer_ticks(uint32_t cycle_time)
          + CONFIG_CLOCK_FREQ / 2U)
         / CONFIG_CLOCK_FREQ;
 
+    /*
+     * CTIMER needs at least two ticks for a useful PWM period.
+     */
     if (ticks < 2U)
         ticks = 2U;
 
-    return (uint32_t)ticks;
+    /*
+     * Our state and match calculations represent the period using
+     * uint32_t. Do not silently truncate a request that exceeds it.
+     */
+    if (ticks > UINT32_MAX)
+        return 0;
+
+    *period_ticks =
+        (uint32_t)ticks;
+
+    return 1;
 }
 
 
@@ -431,22 +448,42 @@ ctimer_pulse_ticks(uint32_t period_ticks,
         val = MAX_PWM;
 
     /*
+     * The period channel is programmed with:
+     *
+     *     MR = period_ticks - 1
+     *
+     * Match-channel duty calculations therefore need to use that same
+     * counter terminal value.
+     */
+    uint32_t period_match =
+        period_ticks - 1U;
+
+    /*
+     * 0% duty:
+     *
+     * Put the pulse match one count beyond the period match so the
+     * output transition never occurs.
+     *
+     * This matches the MCUX SDK CTIMER PWM implementation.
+     */
+    if (val == 0U)
+        return period_ticks;
+
+    /*
+     * 100% duty:
+     *
+     * Match immediately at zero.
+     */
+    if (val == MAX_PWM)
+        return 0U;
+
+    /*
      * MCX CTIMER PWM polarity:
      *
-     *     pulse_match = period * (1 - duty)
-     *
-     * 0%:
-     *
-     *     pulse_match = period_ticks
-     *
-     * which is beyond the period-reset match.
-     *
-     * 100%:
-     *
-     *     pulse_match = 0
+     *     pulse_match = period_match * (1 - duty)
      */
     return (uint32_t)(
-        ((uint64_t)period_ticks * (MAX_PWM - val)
+        ((uint64_t)period_match * (MAX_PWM - val)
          + MAX_PWM / 2U)
         / MAX_PWM);
 }
@@ -542,10 +579,46 @@ ctimer_move_period_channel(uint8_t timer_index,
  * CTIMER route allocation
  ****************************************************************/
 
+
+static void
+ctimer_validate_route(const struct ctimer_pwm_route *route)
+{
+    if (route->timer >= CTIMER_COUNT)
+        shutdown("Invalid CTIMER PWM timer");
+
+    if (route->channel >= 4U)
+        shutdown("Invalid CTIMER PWM channel");
+
+    if (GPIO2PORT(route->pin) >= ARRAY_SIZE(port_regs))
+        shutdown("Invalid CTIMER PWM pin");
+}
+
+
+static int
+ctimer_pin_has_route(uint8_t pin)
+{
+    for (uint32_t i = 0U;
+         i < ARRAY_SIZE(ctimer_routes);
+         i++) {
+        const struct ctimer_pwm_route *route =
+            &ctimer_routes[i];
+
+        ctimer_validate_route(route);
+
+        if (route->pin == pin)
+            return 1;
+    }
+
+    return 0;
+}
+
+
 static int
 ctimer_route_available(const struct ctimer_pwm_route *route,
                        uint32_t period_ticks)
 {
+    ctimer_validate_route(route);
+
     struct ctimer_state *state =
         &ctimer_states[route->timer];
 
@@ -585,7 +658,6 @@ ctimer_route_available(const struct ctimer_pwm_route *route,
 
     return 1;
 }
-
 
 static const struct ctimer_pwm_route *
 ctimer_find_route(uint8_t pin,
@@ -729,20 +801,17 @@ ctimer_initialize(uint8_t timer_index,
  ****************************************************************/
 
 static struct gpio_pwm
-ctimer_pwm_setup(uint8_t pin,
-                 uint32_t cycle_time,
+ctimer_pwm_setup(const struct ctimer_pwm_route *route,
+                 uint32_t period_ticks,
                  uint32_t val)
 {
-    uint32_t period_ticks =
-        cycle_time_to_ctimer_ticks(cycle_time);
-
-    const struct ctimer_pwm_route *route =
-        ctimer_find_route(
-            pin,
-            period_ticks);
-
-    if (!route)
-        shutdown("PWM pin shares CTIMER with a different cycle time");
+    /*
+     * The allocator must have confirmed that this route is usable.
+     */
+    if (!ctimer_route_available(
+            route,
+            period_ticks))
+        shutdown("Invalid CTIMER PWM allocation");
 
     struct ctimer_state *state =
         &ctimer_states[route->timer];
@@ -758,8 +827,9 @@ ctimer_pwm_setup(uint8_t pin,
     }
 
     /*
-     * The requested output may currently be the hidden period channel.
-     * Move the period function to another unused match register first.
+     * The requested MAT channel may currently be acting as the hidden
+     * period channel. Move that function to another free match channel
+     * before enabling this output.
      */
     if (state->period_channel == route->channel) {
         int replacement =
@@ -785,10 +855,10 @@ ctimer_pwm_setup(uint8_t pin,
             val);
 
     /*
-     * Initialize both the active and shadow compare registers.
+     * Initialize both active and shadow compare registers.
      *
-     * Writing MR directly is safe here because this MAT channel was
-     * not previously in use.
+     * Direct MR writes are safe here because this MAT output has not
+     * previously been allocated.
      */
     timer->MR[route->channel] =
         pulse;
@@ -797,13 +867,13 @@ ctimer_pwm_setup(uint8_t pin,
         pulse;
 
     /*
-     * Reload future duty updates from MSR at the period boundary.
+     * Reload future duty changes from MSR at period boundaries.
      */
     timer->MCR |=
         ctimer_reload_bit(route->channel);
 
     /*
-     * Enable PWM mode for this match output.
+     * Enable PWM mode for this MAT output.
      */
     timer->PWMC |=
         1U << route->channel;
@@ -828,8 +898,6 @@ ctimer_pwm_setup(uint8_t pin,
 
     return g;
 }
-
-
 /****************************************************************
  * FlexPWM resources
  ****************************************************************/
@@ -998,6 +1066,74 @@ flexpwm_swcout_23_mask(uint8_t sm)
  * FlexPWM route lookup
  ****************************************************************/
 
+static void
+flexpwm_validate_route(const struct flexpwm_pwm_route *route)
+{
+    if (route->submodule >= FLEXPWM_SUBMODULE_COUNT)
+        shutdown("Invalid FlexPWM submodule");
+
+    if (route->channel != FLEXPWM_CHANNEL_A
+        && route->channel != FLEXPWM_CHANNEL_B)
+        shutdown("Invalid FlexPWM channel");
+
+    if (GPIO2PORT(route->pin) >= ARRAY_SIZE(port_regs))
+        shutdown("Invalid FlexPWM pin");
+}
+
+
+static int
+flexpwm_pin_has_route(uint8_t pin)
+{
+    for (uint32_t i = 0U;
+         i < ARRAY_SIZE(flexpwm_routes);
+         i++) {
+        const struct flexpwm_pwm_route *route =
+            &flexpwm_routes[i];
+
+        flexpwm_validate_route(route);
+
+        if (route->pin == pin)
+            return 1;
+    }
+
+    return 0;
+}
+
+
+static int
+flexpwm_route_available(const struct flexpwm_pwm_route *route,
+                        struct flexpwm_timing timing)
+{
+    flexpwm_validate_route(route);
+
+    struct flexpwm_state *state =
+        &flexpwm_states[route->submodule];
+
+    uint8_t output_bit =
+        flexpwm_output_bit(route->channel);
+
+    /*
+     * This FlexPWM output is already allocated.
+     */
+    if (state->output_mask & output_bit)
+        return 0;
+
+    /*
+     * An unused submodule can accept any representable timing.
+     */
+    if (!state->initialized)
+        return 1;
+
+    /*
+     * A/B outputs on one submodule share the timing domain.
+     */
+    if (state->period_ticks != timing.period_ticks
+        || state->prescale != timing.prescale)
+        return 0;
+
+    return 1;
+}
+
 static const struct flexpwm_pwm_route *
 flexpwm_find_route(uint8_t pin)
 {
@@ -1041,8 +1177,6 @@ flexpwm0_clock_setup(void)
         MRCC_MRCC_GLB_RST0_FLEXPWM0_MASK;
 
     /*
-     * Match FLEXPWM_Init():
-     *
      * Enable all four FlexPWM submodule clocks before releasing
      * peripheral reset.
      */
@@ -1061,17 +1195,33 @@ flexpwm0_clock_setup(void)
     SYSCON->CLKUNLOCK =
         clkunlock;
 
+    /*
+     * Klipper currently does not use the FlexPWM hardware fault
+     * inputs. Establish that policy once for the entire module.
+     */
+    FLEXPWM0->FCTRL =
+        0U;
+
+    FLEXPWM0->FCTRL2 =
+        0U;
+
+    /*
+     * Clear any fault flags left after reset/setup.
+     */
+    FLEXPWM0->FSTS =
+        PWM_FSTS_FFLAG_MASK;
+
     flexpwm0_initialized =
         1U;
 }
-
 
 /****************************************************************
  * FlexPWM timing conversion
  ****************************************************************/
 
-static struct flexpwm_timing
-flexpwm_get_timing(uint32_t cycle_time)
+static int
+flexpwm_get_timing(uint32_t cycle_time,
+                   struct flexpwm_timing *timing)
 {
     /*
      * FLEXPWM0 IPBus clock runs at the full 240 MHz system clock
@@ -1085,32 +1235,61 @@ flexpwm_get_timing(uint32_t cycle_time)
          + CONFIG_CLOCK_FREQ / 2U)
         / CONFIG_CLOCK_FREQ;
 
+    /*
+     * We use a signed, center-aligned counter:
+     *
+     *     INIT = -half_period
+     *     VAL1 =  half_period - 1
+     *
+     * Therefore the hardware period is always:
+     *
+     *     2 * half_period
+     *
+     * Compute the half-period directly so period_ticks exactly
+     * describes the period programmed into hardware.
+     */
     for (uint8_t prescale = 0U;
          prescale <= 7U;
          prescale++) {
         uint32_t divider =
             1U << prescale;
 
-        uint64_t ticks =
-            (raw_ticks + divider / 2U)
-            / divider;
+        /*
+         * Round raw_ticks / (2 * divider) to the nearest integer.
+         */
+        uint64_t half_ticks =
+            (raw_ticks + divider)
+            / (2U * divider);
 
-        if (ticks < 2U)
-            ticks = 2U;
+        if (half_ticks < 1U)
+            half_ticks = 1U;
 
-        if (ticks <= 0xffffU) {
-            struct flexpwm_timing timing = {
-                .period_ticks = (uint16_t)ticks,
-                .prescale = prescale,
-            };
+        /*
+         * period_ticks is uint16_t and must be even.
+         *
+         * Largest representable even period:
+         *
+         *     2 * 32767 = 65534
+         */
+        if (half_ticks <= 0x7fffU) {
+            timing->period_ticks =
+                (uint16_t)(half_ticks * 2U);
 
-            return timing;
+            timing->prescale =
+                prescale;
+
+            return 1;
         }
     }
 
-    shutdown("FlexPWM cycle time too long");
+    /*
+     * Not representable by FlexPWM.
+     *
+     * This is not necessarily fatal -- the pin may also have a
+     * CTIMER route.
+     */
+    return 0;
 }
-
 
 /****************************************************************
  * FlexPWM duty conversion
@@ -1133,22 +1312,36 @@ flexpwm_set_duty(PWM_Type *pwm,
     uint16_t falling;
 
     if (val == 0U) {
-        rising = 0U;
-        falling = 0U;
+        /*
+         * Zero-width pulse.
+         */
+        rising =
+            0U;
+
+        falling =
+            0U;
     } else if (val == MAX_PWM) {
+        /*
+         * Cover the entire signed center-aligned counter range.
+         *
+         * VAL1 is half_period - 1, so falling = half_period never
+         * matches and the output remains asserted for the full cycle.
+         */
         rising =
             (uint16_t)(0U - half_period);
 
         falling =
             half_period;
     } else {
-        uint32_t high_ticks =
-            ((uint64_t)period_ticks * val
-             + MAX_PWM / 2U)
-            / MAX_PWM;
-
+        /*
+         * Generated A/B pulses are symmetric around zero, so represent
+         * duty directly in half-period units.
+         */
         uint16_t half_high =
-            (uint16_t)(high_ticks / 2U);
+            (uint16_t)(
+                ((uint64_t)half_period * val
+                 + MAX_PWM / 2U)
+                / MAX_PWM);
 
         rising =
             (uint16_t)(0U - half_high);
@@ -1185,24 +1378,14 @@ flexpwm_set_duty(PWM_Type *pwm,
 
 static struct gpio_pwm
 flexpwm_pwm_setup(const struct flexpwm_pwm_route *route,
-                  uint32_t cycle_time,
+                  const struct flexpwm_timing *timing,
                   uint32_t val)
 {
-    struct flexpwm_timing timing =
-        flexpwm_get_timing(cycle_time);
-
     PWM_Type *pwm =
         FLEXPWM0;
 
     uint8_t sm =
         route->submodule;
-
-    if (sm >= FLEXPWM_SUBMODULE_COUNT)
-        shutdown("Invalid FlexPWM submodule");
-
-    if (route->channel != FLEXPWM_CHANNEL_A
-        && route->channel != FLEXPWM_CHANNEL_B)
-        shutdown("Unsupported FlexPWM channel");
 
     struct flexpwm_state *state =
         &flexpwm_states[sm];
@@ -1214,20 +1397,11 @@ flexpwm_pwm_setup(const struct flexpwm_pwm_route *route,
         flexpwm_output_bit(route->channel);
 
     /*
-     * A physical FlexPWM output can only be allocated once.
+     * The allocator must have validated this route before calling
+     * setup.
      */
-    if (state->output_mask & output_bit)
-        shutdown("FlexPWM output already in use");
-
-    /*
-     * All outputs belonging to one FlexPWM submodule share the same
-     * counter, period, and prescaler.
-     */
-    if (state->initialized) {
-        if (state->period_ticks != timing.period_ticks
-            || state->prescale != timing.prescale)
-            shutdown("FlexPWM outputs on one submodule must share cycle time");
-    }
+    if (!flexpwm_route_available(route, *timing))
+        shutdown("Invalid FlexPWM allocation");
 
     flexpwm0_clock_setup();
 
@@ -1246,13 +1420,13 @@ flexpwm_pwm_setup(const struct flexpwm_pwm_route *route,
             PWM_MCTRL_CLDOK(sm_mask);
 
         uint16_t half_period =
-            timing.period_ticks / 2U;
+            timing->period_ticks / 2U;
 
         /*
          * Independent A/B outputs.
          *
-         * WAITEN is required so FlexPWM remains active while
-         * Klipper idles the Cortex-M33.
+         * WAITEN is required so FlexPWM continues operating while
+         * Klipper idles the Cortex-M33 in wait mode.
          */
         pwm->SM[sm].CTRL2 =
             PWM_CTRL2_DBGEN_MASK
@@ -1260,14 +1434,9 @@ flexpwm_pwm_setup(const struct flexpwm_pwm_route *route,
             | PWM_CTRL2_INDEP_MASK;
 
         pwm->SM[sm].CTRL =
-            PWM_CTRL_PRSC(timing.prescale)
+            PWM_CTRL_PRSC(timing->prescale)
             | PWM_CTRL_FULL_MASK;
 
-        /*
-         * Center-aligned signed counter:
-         *
-         *     -period/2 ... +(period/2 - 1)
-         */
         pwm->SM[sm].INIT =
             (uint16_t)(0U - half_period);
 
@@ -1278,7 +1447,7 @@ flexpwm_pwm_setup(const struct flexpwm_pwm_route *route,
             half_period - 1U;
 
         /*
-         * Start unused outputs at zero duty.
+         * Start both independent outputs at zero duty.
          */
         pwm->SM[sm].VAL2 =
             0U;
@@ -1308,7 +1477,7 @@ flexpwm_pwm_setup(const struct flexpwm_pwm_route *route,
               | PWM_OCTRL_PWMBFS_MASK);
 
         /*
-         * No fault mapping.
+         * No hardware fault mapping.
          */
         pwm->SM[sm].DISMAP[0] &=
             ~(PWM_DISMAP_DIS0A_MASK
@@ -1325,10 +1494,10 @@ flexpwm_pwm_setup(const struct flexpwm_pwm_route *route,
             ~flexpwm_swcout_23_mask(sm);
 
         state->period_ticks =
-            timing.period_ticks;
+            timing->period_ticks;
 
         state->prescale =
-            timing.prescale;
+            timing->prescale;
 
         state->output_mask =
             0U;
@@ -1353,34 +1522,24 @@ flexpwm_pwm_setup(const struct flexpwm_pwm_route *route,
 
         pwm->OUTEN |=
             PWM_OUTEN_PWMA_EN(sm_mask);
-    } else {
+    } else if (route->channel == FLEXPWM_CHANNEL_B) {
         pwm->MASK &=
             ~PWM_MASK_MASKB(sm_mask);
 
         pwm->OUTEN |=
             PWM_OUTEN_PWMB_EN(sm_mask);
+    } else {
+        shutdown("Unsupported FlexPWM channel");
     }
 
     /*
-     * Fault handling is currently unused.
-     */
-    pwm->FCTRL =
-        0U;
-
-    pwm->FCTRL2 =
-        0U;
-
-    pwm->FSTS |=
-        PWM_FSTS_FFLAG_MASK;
-
-    /*
-     * Commit the newly-programmed compare registers.
+     * Commit this output's buffered compare registers.
      */
     pwm->MCTRL |=
         PWM_MCTRL_LDOK(sm_mask);
 
     /*
-     * Start or preserve the running timing domain.
+     * Start or preserve the timing domain.
      */
     pwm->MCTRL |=
         PWM_MCTRL_RUN(sm_mask);
@@ -1409,22 +1568,72 @@ gpio_pwm_setup(uint8_t pin,
                uint32_t cycle_time,
                uint32_t val)
 {
-    const struct flexpwm_pwm_route *flex_route =
-        flexpwm_find_route(pin);
+    int has_flexpwm_route =
+        flexpwm_pin_has_route(pin);
 
-    if (flex_route) {
-        return flexpwm_pwm_setup(
-            flex_route,
-            cycle_time,
-            val);
+    int has_ctimer_route =
+        ctimer_pin_has_route(pin);
+
+    /*
+     * Reject pins that have no hardware PWM capability before doing
+     * any timing or resource-allocation work.
+     */
+    if (!has_flexpwm_route
+        && !has_ctimer_route)
+        shutdown("Pin does not support hardware PWM");
+
+    /*
+     * Prefer FlexPWM when this pin has a valid route and the requested
+     * timing fits the existing FlexPWM submodule timing domain.
+     */
+    if (has_flexpwm_route) {
+        const struct flexpwm_pwm_route *flex_route =
+            flexpwm_find_route(pin);
+
+        struct flexpwm_timing timing;
+
+        if (flexpwm_get_timing(
+                cycle_time,
+                &timing)
+            && flexpwm_route_available(
+                flex_route,
+                timing)) {
+            return flexpwm_pwm_setup(
+                flex_route,
+                &timing,
+                val);
+        }
     }
 
-    return ctimer_pwm_setup(
-        pin,
-        cycle_time,
-        val);
-}
+    /*
+     * Otherwise try CTIMER.
+     */
+    if (has_ctimer_route) {
+        uint32_t period_ticks;
 
+        if (cycle_time_to_ctimer_ticks(
+                cycle_time,
+                &period_ticks)) {
+            const struct ctimer_pwm_route *ctimer_route =
+                ctimer_find_route(
+                    pin,
+                    period_ticks);
+
+            if (ctimer_route) {
+                return ctimer_pwm_setup(
+                    ctimer_route,
+                    period_ticks,
+                    val);
+            }
+        }
+    }
+
+    /*
+     * At least one hardware PWM route exists for this pin, but none
+     * can satisfy the requested timing/resource combination.
+     */
+    shutdown("No compatible hardware PWM resource available");
+}
 
 /****************************************************************
  * Public PWM write API
@@ -1434,7 +1643,24 @@ void
 gpio_pwm_write(struct gpio_pwm g,
                uint32_t val)
 {
+    if (val > MAX_PWM)
+        val = MAX_PWM;
+
     if (g.provider == MCX_PWM_FLEXPWM) {
+        if (g.regs != FLEXPWM0)
+            shutdown("Invalid FlexPWM peripheral");
+
+        if (g.submodule >= FLEXPWM_SUBMODULE_COUNT)
+            shutdown("Invalid FlexPWM submodule");
+
+        if (g.channel != FLEXPWM_CHANNEL_A
+            && g.channel != FLEXPWM_CHANNEL_B)
+            shutdown("Invalid FlexPWM channel");
+
+        if (!g.hwpwm_ticks
+            || (g.hwpwm_ticks & 1U))
+            shutdown("Invalid FlexPWM period");
+
         PWM_Type *pwm =
             g.regs;
 
@@ -1448,6 +1674,10 @@ gpio_pwm_write(struct gpio_pwm g,
             g.hwpwm_ticks,
             val);
 
+        /*
+         * Transfer the buffered compare values at the next reload
+         * opportunity.
+         */
         pwm->MCTRL |=
             PWM_MCTRL_LDOK(1U << sm);
 
@@ -1455,17 +1685,51 @@ gpio_pwm_write(struct gpio_pwm g,
     }
 
     if (g.provider == MCX_PWM_CTIMER) {
+        if (g.hwpwm_ticks < 2U)
+            shutdown("Invalid CTIMER PWM period");
+
+        if (g.channel >= 4U)
+            shutdown("Invalid CTIMER PWM channel");
+
         CTIMER_Type *timer =
             g.regs;
+
+        /*
+         * The gpio_pwm handle should only ever contain one of the
+         * five MCXA366 CTIMER instances.
+         */
+        int valid_timer =
+            0;
+
+        for (uint32_t i = 0U;
+             i < CTIMER_COUNT;
+             i++) {
+            if (timer == ctimer_regs[i]) {
+                valid_timer =
+                    1;
+                break;
+            }
+        }
+
+        if (!valid_timer)
+            shutdown("Invalid CTIMER PWM peripheral");
 
         uint32_t pulse =
             ctimer_pulse_ticks(
                 g.hwpwm_ticks,
                 val);
 
+        /*
+         * MSR is the shadow register used for glitch-free PWM updates.
+         */
         timer->MSR[g.channel] =
             pulse;
 
+        /*
+         * If the timer is stopped, no reload event will occur.
+         * Keep MR synchronized so the requested level is present when
+         * the timing domain starts again.
+         */
         if (!(timer->TCR & CTIMER_TCR_CEN_MASK))
             timer->MR[g.channel] =
                 pulse;
