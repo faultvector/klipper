@@ -387,13 +387,8 @@ pwm_pin_setup(uint32_t pin,
         clkunlock;
 
     /*
-     * NXP-generated MCXA366 configuration:
-     *
-     *     fast slew
-     *     input buffer enabled
-     *     no pull
-     *     no open drain
-     *     no inversion
+     * Select the PWM peripheral function and enable the input buffer.
+     * Other pad-control fields are left at their reset/default values.
      */
     port_regs[port]->PCR[pin_num] =
         PORT_PCR_MUX(mux)
@@ -579,7 +574,6 @@ ctimer_move_period_channel(uint8_t timer_index,
  * CTIMER route allocation
  ****************************************************************/
 
-
 static void
 ctimer_validate_route(const struct ctimer_pwm_route *route)
 {
@@ -589,7 +583,8 @@ ctimer_validate_route(const struct ctimer_pwm_route *route)
     if (route->channel >= 4U)
         shutdown("Invalid CTIMER PWM channel");
 
-    if (GPIO2PORT(route->pin) >= ARRAY_SIZE(port_regs))
+    if (GPIO2PORT(route->pin) >= ARRAY_SIZE(port_regs)
+        || GPIO2PIN(route->pin) >= 32U)
         shutdown("Invalid CTIMER PWM pin");
 }
 
@@ -658,6 +653,7 @@ ctimer_route_available(const struct ctimer_pwm_route *route,
 
     return 1;
 }
+
 
 static const struct ctimer_pwm_route *
 ctimer_find_route(uint8_t pin,
@@ -898,15 +894,15 @@ ctimer_pwm_setup(const struct ctimer_pwm_route *route,
 
     return g;
 }
+
+
 /****************************************************************
  * FlexPWM resources
  ****************************************************************/
 
-#define FLEXPWM_CHANNEL_X 0U
 #define FLEXPWM_CHANNEL_B 1U
 #define FLEXPWM_CHANNEL_A 2U
 
-#define FLEXPWM_OUTPUT_X (1U << FLEXPWM_CHANNEL_X)
 #define FLEXPWM_OUTPUT_B (1U << FLEXPWM_CHANNEL_B)
 #define FLEXPWM_OUTPUT_A (1U << FLEXPWM_CHANNEL_A)
 
@@ -924,7 +920,9 @@ struct flexpwm_timing {
     uint8_t prescale;
 };
 
+
 #define FLEXPWM_SUBMODULE_COUNT 4U
+
 
 struct flexpwm_state {
     uint16_t period_ticks;
@@ -932,6 +930,7 @@ struct flexpwm_state {
     uint8_t output_mask;
     uint8_t initialized;
 };
+
 
 static struct flexpwm_state
     flexpwm_states[FLEXPWM_SUBMODULE_COUNT];
@@ -941,9 +940,6 @@ static uint8_t
 flexpwm_output_bit(uint8_t channel)
 {
     switch (channel) {
-    case FLEXPWM_CHANNEL_X:
-        return FLEXPWM_OUTPUT_X;
-
     case FLEXPWM_CHANNEL_B:
         return FLEXPWM_OUTPUT_B;
 
@@ -1076,7 +1072,8 @@ flexpwm_validate_route(const struct flexpwm_pwm_route *route)
         && route->channel != FLEXPWM_CHANNEL_B)
         shutdown("Invalid FlexPWM channel");
 
-    if (GPIO2PORT(route->pin) >= ARRAY_SIZE(port_regs))
+    if (GPIO2PORT(route->pin) >= ARRAY_SIZE(port_regs)
+        || GPIO2PIN(route->pin) >= 32U)
         shutdown("Invalid FlexPWM pin");
 }
 
@@ -1133,6 +1130,7 @@ flexpwm_route_available(const struct flexpwm_pwm_route *route,
 
     return 1;
 }
+
 
 static const struct flexpwm_pwm_route *
 flexpwm_find_route(uint8_t pin)
@@ -1215,6 +1213,7 @@ flexpwm0_clock_setup(void)
         1U;
 }
 
+
 /****************************************************************
  * FlexPWM timing conversion
  ****************************************************************/
@@ -1290,6 +1289,7 @@ flexpwm_get_timing(uint32_t cycle_time,
      */
     return 0;
 }
+
 
 /****************************************************************
  * FlexPWM duty conversion
@@ -1371,6 +1371,7 @@ flexpwm_set_duty(PWM_Type *pwm,
         shutdown("Unsupported FlexPWM channel");
     }
 }
+
 
 /****************************************************************
  * FlexPWM setup
@@ -1635,6 +1636,7 @@ gpio_pwm_setup(uint8_t pin,
     shutdown("No compatible hardware PWM resource available");
 }
 
+
 /****************************************************************
  * Public PWM write API
  ****************************************************************/
@@ -1739,4 +1741,3 @@ gpio_pwm_write(struct gpio_pwm g,
 
     shutdown("Invalid PWM provider");
 }
-
